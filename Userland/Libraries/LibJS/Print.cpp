@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2020-2022, Linus Groh <linusg@serenityos.org>
  * Copyright (c) 2022, Ali Mohammad Pur <mpfard@serenityos.org>
  *
@@ -165,6 +165,7 @@ ErrorOr<void> print_array(JS::PrintContext& print_context, JS::Array const& arra
 {
     TRY(js_out(print_context, "["));
     bool first = true;
+    size_t printed_count = 0;
     for (auto it = array.indexed_properties().begin(false); it != array.indexed_properties().end(); ++it) {
         TRY(print_separator(print_context, first));
         auto value_or_error = array.get(it.index());
@@ -175,6 +176,10 @@ ErrorOr<void> print_array(JS::PrintContext& print_context, JS::Array const& arra
             return {};
         auto value = value_or_error.release_value();
         TRY(print_value(print_context, value, seen_objects));
+        if (++printed_count > 100 && it != array.indexed_properties().end()) {
+            TRY(js_out(print_context, ", ..."));
+            break;
+        }
     }
     if (!first)
         TRY(js_out(print_context, " "));
@@ -472,10 +477,15 @@ ErrorOr<void> print_typed_array(JS::PrintContext& print_context, JS::TypedArrayB
         TRY(js_out(print_context, "[ "));                                                \
         auto& typed_array = static_cast<JS::ClassName const&>(typed_array_base);         \
         auto data = typed_array.data();                                                  \
+        size_t printed_count = 0;                                                        \
         for (size_t i = 0; i < length; ++i) {                                            \
             if (i > 0)                                                                   \
                 TRY(js_out(print_context, ", "));                                        \
             TRY(print_number(print_context, data[i]));                                   \
+            if (++printed_count > 100 && i < length) {                                   \
+                TRY(js_out(print_context, ", ..."));                                     \
+                break;                                                                   \
+            }                                                                            \
         }                                                                                \
         TRY(js_out(print_context, " ]"));                                                \
         return {};                                                                       \
@@ -738,9 +748,9 @@ ErrorOr<void> print_intl_date_time_format(JS::PrintContext& print_context, JS::I
     TRY(print_value(print_context, JS::PrimitiveString::create(date_time_format.vm(), date_time_format.calendar()), seen_objects));
     TRY(js_out(print_context, "\n  numberingSystem: "));
     TRY(print_value(print_context, JS::PrimitiveString::create(date_time_format.vm(), date_time_format.numbering_system()), seen_objects));
-    if (date_time_format.hour_cycle.has_value()) {
+    if (auto const& hour_cycle = date_time_format.date_time_format().hour_cycle; hour_cycle.has_value()) {
         TRY(js_out(print_context, "\n  hourCycle: "));
-        TRY(print_value(print_context, JS::PrimitiveString::create(date_time_format.vm(), Unicode::hour_cycle_to_string(*date_time_format.hour_cycle)), seen_objects));
+        TRY(print_value(print_context, JS::PrimitiveString::create(date_time_format.vm(), Unicode::hour_cycle_to_string(*hour_cycle)), seen_objects));
     }
     TRY(js_out(print_context, "\n  timeZone: "));
     TRY(print_value(print_context, JS::PrimitiveString::create(date_time_format.vm(), date_time_format.time_zone()), seen_objects));
@@ -753,7 +763,7 @@ ErrorOr<void> print_intl_date_time_format(JS::PrintContext& print_context, JS::I
         TRY(print_value(print_context, JS::PrimitiveString::create(date_time_format.vm(), date_time_format.time_style_string()), seen_objects));
     }
 
-    auto result = JS::Intl::for_each_calendar_field(date_time_format.vm(), date_time_format, [&](auto& option, auto const& property, auto const&) -> JS::ThrowCompletionOr<void> {
+    auto result = JS::Intl::for_each_calendar_field(date_time_format.vm(), date_time_format.date_time_format(), [&](auto& option, auto const& property, auto const&) -> JS::ThrowCompletionOr<void> {
         using ValueType = typename RemoveReference<decltype(option)>::ValueType;
 
         if (!option.has_value())

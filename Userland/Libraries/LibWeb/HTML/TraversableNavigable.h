@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -78,16 +78,17 @@ public:
     void traverse_the_history_by_delta(int delta, Optional<DOM::Document&> source_document = {});
 
     void close_top_level_traversable();
+    void definitely_close_top_level_traversable();
     void destroy_top_level_traversable();
 
-    void append_session_history_traversal_steps(ESCAPING Function<void()> steps)
+    void append_session_history_traversal_steps(JS::NonnullGCPtr<JS::HeapFunction<void()>> steps)
     {
-        m_session_history_traversal_queue->append(move(steps));
+        m_session_history_traversal_queue->append(steps);
     }
 
-    void append_session_history_synchronous_navigation_steps(JS::NonnullGCPtr<Navigable> target_navigable, ESCAPING Function<void()> steps)
+    void append_session_history_synchronous_navigation_steps(JS::NonnullGCPtr<Navigable> target_navigable, JS::NonnullGCPtr<JS::HeapFunction<void()>> steps)
     {
-        m_session_history_traversal_queue->append_sync(move(steps), target_navigable);
+        m_session_history_traversal_queue->append_sync(steps, target_navigable);
     }
 
     String window_handle() const { return m_window_handle; }
@@ -96,6 +97,13 @@ public:
     [[nodiscard]] JS::GCPtr<DOM::Node> currently_focused_area();
 
     void paint(Web::DevicePixelRect const&, Painting::BackingStore&, Web::PaintOptions);
+
+    enum class CheckIfUnloadingIsCanceledResult {
+        CanceledByBeforeUnload,
+        CanceledByNavigate,
+        Continue,
+    };
+    CheckIfUnloadingIsCanceledResult check_if_unloading_is_canceled(Vector<JS::Handle<Navigable>> navigables_that_need_before_unload);
 
 private:
     TraversableNavigable(JS::NonnullGCPtr<Page>);
@@ -111,6 +119,8 @@ private:
         Optional<UserNavigationInvolvement> user_involvement_for_navigate_events,
         Optional<Bindings::NavigationType> navigation_type,
         SynchronousNavigation);
+
+    CheckIfUnloadingIsCanceledResult check_if_unloading_is_canceled(Vector<JS::Handle<Navigable>> navigables_that_need_before_unload, JS::GCPtr<TraversableNavigable> traversable, Optional<int> target_step, Optional<UserNavigationInvolvement> user_involvement_for_navigate_events);
 
     Vector<JS::NonnullGCPtr<SessionHistoryEntry>> get_session_history_entries_for_the_navigation_api(JS::NonnullGCPtr<Navigable>, int);
 
@@ -128,7 +138,7 @@ private:
     bool m_running_nested_apply_history_step { false };
 
     // https://html.spec.whatwg.org/multipage/document-sequences.html#system-visibility-state
-    VisibilityState m_system_visibility_state { VisibilityState::Visible };
+    VisibilityState m_system_visibility_state { VisibilityState::Hidden };
 
     JS::NonnullGCPtr<SessionHistoryTraversalQueue> m_session_history_traversal_queue;
 

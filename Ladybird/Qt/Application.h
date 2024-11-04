@@ -10,7 +10,7 @@
 #include <AK/HashTable.h>
 #include <Ladybird/Qt/BrowserWindow.h>
 #include <LibImageDecoderClient/Client.h>
-#include <LibProtocol/RequestClient.h>
+#include <LibRequests/RequestClient.h>
 #include <LibURL/URL.h>
 #include <LibWebView/Application.h>
 #include <QApplication>
@@ -29,12 +29,12 @@ public:
     virtual bool event(QEvent* event) override;
 
     Function<void(URL::URL)> on_open_file;
-    RefPtr<Protocol::RequestClient> request_server_client;
+    RefPtr<Requests::RequestClient> request_server_client;
 
     NonnullRefPtr<ImageDecoderClient::Client> image_decoder_client() const { return *m_image_decoder_client; }
     ErrorOr<void> initialize_image_decoder();
 
-    BrowserWindow& new_window(Vector<URL::URL> const& initial_urls, WebView::CookieJar&, BrowserWindow::IsPopupWindow is_popup_window = BrowserWindow::IsPopupWindow::No, Tab* parent_tab = nullptr, Optional<u64> page_index = {});
+    BrowserWindow& new_window(Vector<URL::URL> const& initial_urls, BrowserWindow::IsPopupWindow is_popup_window = BrowserWindow::IsPopupWindow::No, Tab* parent_tab = nullptr, Optional<u64> page_index = {});
 
     void show_task_manager_window();
     void close_task_manager_window();
@@ -43,10 +43,9 @@ public:
     void set_active_window(BrowserWindow& w) { m_active_window = &w; }
 
 private:
-    virtual void create_platform_arguments(Core::ArgsParser&) override;
     virtual void create_platform_options(WebView::ChromeOptions&, WebView::WebContentOptions&) override;
 
-    bool m_enable_qt_networking { false };
+    virtual Optional<ByteString> ask_user_for_download_folder() const override;
 
     TaskManagerWindow* m_task_manager_window { nullptr };
     BrowserWindow* m_active_window { nullptr };

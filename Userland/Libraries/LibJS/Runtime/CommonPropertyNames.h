@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -68,6 +68,7 @@ namespace JS {
     P(adopt)                                 \
     P(all)                                   \
     P(allSettled)                            \
+    P(alphabet)                              \
     P(anchor)                                \
     P(any)                                   \
     P(apply)                                 \
@@ -92,6 +93,7 @@ namespace JS {
     P(byteLength)                            \
     P(byteOffset)                            \
     P(calendar)                              \
+    P(calendarId)                            \
     P(calendarName)                          \
     P(call)                                  \
     P(callee)                                \
@@ -211,6 +213,7 @@ namespace JS {
     P(freeze)                                \
     P(from)                                  \
     P(fromAsync)                             \
+    P(fromBase64)                            \
     P(fromCharCode)                          \
     P(fromCodePoint)                         \
     P(fromEntries)                           \
@@ -218,6 +221,7 @@ namespace JS {
     P(fromEpochMilliseconds)                 \
     P(fromEpochNanoseconds)                  \
     P(fromEpochSeconds)                      \
+    P(fromHex)                               \
     P(fround)                                \
     P(gc)                                    \
     P(get)                                   \
@@ -337,6 +341,7 @@ namespace JS {
     P(language)                              \
     P(languageDisplay)                       \
     P(largestUnit)                           \
+    P(lastChunkHandling)                     \
     P(lastIndex)                             \
     P(lastIndexOf)                           \
     P(length)                                \
@@ -398,6 +403,7 @@ namespace JS {
     P(of)                                    \
     P(offset)                                \
     P(offsetNanoseconds)                     \
+    P(omitPadding)                           \
     P(overflow)                              \
     P(ownKeys)                               \
     P(padEnd)                                \
@@ -405,6 +411,7 @@ namespace JS {
     P(parse)                                 \
     P(parseFloat)                            \
     P(parseInt)                              \
+    P(pause)                                 \
     P(plainDate)                             \
     P(plainDateISO)                          \
     P(plainDateTime)                         \
@@ -423,6 +430,7 @@ namespace JS {
     P(race)                                  \
     P(random)                                \
     P(raw)                                   \
+    P(read)                                  \
     P(reason)                                \
     P(reduce)                                \
     P(reduceRight)                           \
@@ -457,6 +465,8 @@ namespace JS {
     P(setDate)                               \
     P(setFloat32)                            \
     P(setFloat64)                            \
+    P(setFromBase64)                         \
+    P(setFromHex)                            \
     P(setFullYear)                           \
     P(setHours)                              \
     P(setInt8)                               \
@@ -513,6 +523,7 @@ namespace JS {
     P(supportedLocalesOf)                    \
     P(supportedValuesOf)                     \
     P(symmetricDifference)                   \
+    P(table)                                 \
     P(take)                                  \
     P(tan)                                   \
     P(tanh)                                  \
@@ -525,10 +536,12 @@ namespace JS {
     P(timeZone)                              \
     P(timeZoneName)                          \
     P(toArray)                               \
+    P(toBase64)                              \
     P(toDateString)                          \
     P(toExponential)                         \
     P(toFixed)                               \
     P(toGMTString)                           \
+    P(toHex)                                 \
     P(toInstant)                             \
     P(toISOString)                           \
     P(toJSON)                                \
@@ -597,6 +610,7 @@ namespace JS {
     P(withResolvers)                         \
     P(withTimeZone)                          \
     P(writable)                              \
+    P(written)                               \
     P(year)                                  \
     P(yearMonthFromFields)                   \
     P(yearOfWeek)                            \

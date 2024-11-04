@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Tim Flynn <trflynn89@serenityos.org>
+ * Copyright (c) 2022-2024, Tim Flynn <trflynn89@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -9,8 +9,8 @@
 
 namespace WebDriver {
 
-WebContentConnection::WebContentConnection(NonnullOwnPtr<Core::LocalSocket> socket)
-    : IPC::ConnectionFromClient<WebDriverClientEndpoint, WebDriverServerEndpoint>(*this, move(socket), 1)
+WebContentConnection::WebContentConnection(IPC::Transport transport)
+    : IPC::ConnectionFromClient<WebDriverClientEndpoint, WebDriverServerEndpoint>(*this, move(transport), 1)
 {
 }
 
@@ -18,6 +18,12 @@ void WebContentConnection::die()
 {
     if (on_close)
         on_close();
+}
+
+void WebContentConnection::driver_execution_complete(Web::WebDriver::Response const& response)
+{
+    if (on_driver_execution_complete)
+        on_driver_execution_complete(response);
 }
 
 }

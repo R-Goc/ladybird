@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -26,9 +26,11 @@ template<typename T>
 class Line;
 
 class AntiAliasingPainter;
+class DeprecatedPainter;
 class Painter;
 class Palette;
 class PaletteImpl;
+class DeprecatedPath;
 class Path;
 class ShareableBitmap;
 struct SystemTheme;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -12,6 +12,7 @@
 #include <LibWeb/HTML/Parser/HTMLTokenizer.h>
 #include <LibWeb/HTML/Parser/ListOfActiveFormattingElements.h>
 #include <LibWeb/HTML/Parser/StackOfOpenElements.h>
+#include <LibWeb/MimeSniff/MimeType.h>
 
 namespace Web::HTML {
 
@@ -50,7 +51,7 @@ public:
     ~HTMLParser();
 
     static JS::NonnullGCPtr<HTMLParser> create_for_scripting(DOM::Document&);
-    static JS::NonnullGCPtr<HTMLParser> create_with_uncertain_encoding(DOM::Document&, ByteBuffer const& input);
+    static JS::NonnullGCPtr<HTMLParser> create_with_uncertain_encoding(DOM::Document&, ByteBuffer const& input, Optional<MimeSniff::MimeType> maybe_mime_type = {});
     static JS::NonnullGCPtr<HTMLParser> create(DOM::Document&, StringView input, StringView encoding);
 
     void run(HTMLTokenizer::StopAtInsertionPoint = HTMLTokenizer::StopAtInsertionPoint::No);
@@ -147,9 +148,9 @@ private:
     };
     JS::NonnullGCPtr<DOM::Element> insert_foreign_element(HTMLToken const&, Optional<FlyString> const& namespace_, OnlyAddToElementStack);
     JS::NonnullGCPtr<DOM::Element> insert_html_element(HTMLToken const&);
-    DOM::Element& current_node();
-    DOM::Element& adjusted_current_node();
-    DOM::Element& node_before_current_node();
+    [[nodiscard]] JS::GCPtr<DOM::Element> current_node();
+    [[nodiscard]] JS::GCPtr<DOM::Element> adjusted_current_node();
+    [[nodiscard]] JS::GCPtr<DOM::Element> node_before_current_node();
     void insert_character(u32 data);
     void insert_comment(HTMLToken&);
     void reconstruct_the_active_formatting_elements();
@@ -213,8 +214,8 @@ private:
     StringBuilder m_character_insertion_builder;
 };
 
-RefPtr<CSS::StyleValue> parse_dimension_value(StringView);
-RefPtr<CSS::StyleValue> parse_nonzero_dimension_value(StringView);
+RefPtr<CSS::CSSStyleValue> parse_dimension_value(StringView);
+RefPtr<CSS::CSSStyleValue> parse_nonzero_dimension_value(StringView);
 Optional<Color> parse_legacy_color_value(StringView);
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -25,6 +25,14 @@ TEST_CASE(ints)
     EXPECT_EQ(ints[0], 0);
     EXPECT_EQ(ints[1], 1);
     EXPECT_EQ(ints[2], 2);
+}
+
+TEST_CASE(conforms_to_iterator_procotol)
+{
+    static_assert(std::random_access_iterator<FixedArray<int>::Iterator>);
+    static_assert(std::random_access_iterator<FixedArray<int>::ConstIterator>);
+    static_assert(std::random_access_iterator<FixedArray<int const>::Iterator>);
+    static_assert(std::random_access_iterator<FixedArray<int const>::ConstIterator>);
 }
 
 TEST_CASE(swap)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Andrew Kaster <akaster@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -17,18 +17,20 @@
 #include <LibMain/Main.h>
 #include <LibTLS/Certificate.h>
 #include <RequestServer/ConnectionFromClient.h>
-#include <RequestServer/HttpProtocol.h>
-#include <RequestServer/HttpsProtocol.h>
 
 #if defined(AK_OS_MACOS)
 #    include <LibCore/Platform/ProcessStatisticsMach.h>
 #endif
 
+namespace RequestServer {
+extern ByteString g_default_certificate_path;
+}
+
 static ErrorOr<ByteString> find_certificates(StringView serenity_resource_root)
 {
     auto cert_path = ByteString::formatted("{}/ladybird/cacert.pem", serenity_resource_root);
     if (!FileSystem::exists(cert_path))
-        return Error::from_string_view("Don't know how to load certs!"sv);
+        return Error::from_string_literal("Don't know how to load certs!");
     return cert_path;
 }
 
@@ -54,6 +56,9 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     // Ensure the certificates are read out here.
     if (certificates.is_empty())
         certificates.append(TRY(find_certificates(serenity_resource_root)));
+    else
+        RequestServer::g_default_certificate_path = certificates.first();
+
     DefaultRootCACertificates::set_default_certificate_paths(certificates.span());
     [[maybe_unused]] auto& certs = DefaultRootCACertificates::the();
 
@@ -63,9 +68,6 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
     if (!mach_server_name.is_empty())
         Core::Platform::register_with_mach_server(mach_server_name);
 #endif
-
-    RequestServer::HttpProtocol::install();
-    RequestServer::HttpsProtocol::install();
 
     auto client = TRY(IPC::take_over_accepted_client_from_system_server<RequestServer::ConnectionFromClient>());
 

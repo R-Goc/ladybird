@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibGfx/Path.h>
 #include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/Bindings/SVGCircleElementPrototype.h>
 #include <LibWeb/CSS/Parser/Parser.h>

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2020-2023, Andreas Kling <kling@serenityos.org>
- * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
+ * Copyright (c) 2020-2023, Andreas Kling <andreas@ladybird.org>
+ * Copyright (c) 2021-2024, Sam Atkins <sam@ladybird.org>
  * Copyright (c) 2021-2023, Linus Groh <linusg@serenityos.org>
  * Copyright (c) 2022, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2022, Tim Flynn <trflynn89@serenityos.org>
@@ -16,6 +16,8 @@
 #include <LibGfx/SystemTheme.h>
 #include <LibJS/Heap/Heap.h>
 #include <LibJS/Runtime/ConsoleObject.h>
+#include <LibJS/Runtime/Date.h>
+#include <LibUnicode/TimeZone.h>
 #include <LibWeb/ARIA/RoleType.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/CSS/StyleComputer.h>
@@ -51,11 +53,12 @@
 
 namespace WebContent {
 
-ConnectionFromClient::ConnectionFromClient(NonnullOwnPtr<Core::LocalSocket> socket)
-    : IPC::ConnectionFromClient<WebContentClientEndpoint, WebContentServerEndpoint>(*this, move(socket), 1)
+ConnectionFromClient::ConnectionFromClient(JS::Heap& heap, IPC::Transport transport)
+    : IPC::ConnectionFromClient<WebContentClientEndpoint, WebContentServerEndpoint>(*this, move(transport), 1)
+    , m_heap(heap)
     , m_page_host(PageHost::create(*this))
 {
-    m_input_event_queue_timer = Web::Platform::Timer::create_single_shot(0, [this] { process_next_input_event(); });
+    m_input_event_queue_timer = Web::Platform::Timer::create_single_shot(m_heap, 0, JS::create_heap_function(heap, [this] { process_next_input_event(); }));
 }
 
 ConnectionFromClient::~ConnectionFromClient() = default;
@@ -183,13 +186,13 @@ void ConnectionFromClient::process_next_input_event()
     if (!page.has_value())
         return;
 
-    auto handled = event.event.visit(
+    auto result = event.event.visit(
         [&](Web::KeyEvent const& event) {
             switch (event.type) {
             case Web::KeyEvent::Type::KeyDown:
-                return page->page().handle_keydown(event.key, event.modifiers, event.code_point);
+                return page->page().handle_keydown(event.key, event.modifiers, event.code_point, event.repeat);
             case Web::KeyEvent::Type::KeyUp:
-                return page->page().handle_keyup(event.key, event.modifiers, event.code_point);
+                return page->page().handle_keyup(event.key, event.modifiers, event.code_point, event.repeat);
             }
             VERIFY_NOT_REACHED();
         },
@@ -207,12 +210,15 @@ void ConnectionFromClient::process_next_input_event()
                 return page->page().handle_doubleclick(event.position, event.screen_position, event.button, event.buttons, event.modifiers);
             }
             VERIFY_NOT_REACHED();
+        },
+        [&](Web::DragEvent& event) {
+            return page->page().handle_drag_and_drop_event(event.type, event.position, event.screen_position, event.button, event.buttons, event.modifiers, move(event.files));
         });
 
-    // We have to notify the client about coalesced events, so we do that by saying none of them were handled by the web page->
+    // We have to notify the client about coalesced events, so we do that by saying none of them were handled by the web page.
     for (size_t i = 0; i < event.coalesced_event_count; ++i)
-        report_finished_handling_input_event(event.page_id, false);
-    report_finished_handling_input_event(event.page_id, handled);
+        report_finished_handling_input_event(event.page_id, Web::EventResult::Dropped);
+    report_finished_handling_input_event(event.page_id, result);
 
     if (!m_input_event_queue.is_empty())
         m_input_event_queue_timer->start();
@@ -257,15 +263,20 @@ void ConnectionFromClient::mouse_event(u64 page_id, Web::MouseEvent const& event
     enqueue_input_event({ page_id, move(const_cast<Web::MouseEvent&>(event)), 0 });
 }
 
+void ConnectionFromClient::drag_event(u64 page_id, Web::DragEvent const& event)
+{
+    enqueue_input_event({ page_id, move(const_cast<Web::DragEvent&>(event)), 0 });
+}
+
 void ConnectionFromClient::enqueue_input_event(QueuedInputEvent event)
 {
     m_input_event_queue.enqueue(move(event));
     m_input_event_queue_timer->start();
 }
 
-void ConnectionFromClient::report_finished_handling_input_event(u64 page_id, bool event_was_handled)
+void ConnectionFromClient::report_finished_handling_input_event(u64 page_id, Web::EventResult event_result)
 {
-    async_did_finish_handling_input_event(page_id, event_was_handled);
+    async_did_finish_handling_input_event(page_id, event_result);
 }
 
 void ConnectionFromClient::debug_request(u64 page_id, ByteString const& request, ByteString const& argument)
@@ -314,8 +325,7 @@ void ConnectionFromClient::debug_request(u64 page_id, ByteString const& request,
     if (request == "dump-style-sheets") {
         if (auto* doc = page->page().top_level_browsing_context().active_document()) {
             for (auto& sheet : doc->style_sheets().sheets()) {
-                if (auto result = Web::dump_sheet(sheet); result.is_error())
-                    dbgln("Failed to dump style sheets: {}", result.error());
+                Web::dump_sheet(sheet);
             }
         }
         return;
@@ -333,7 +343,7 @@ void ConnectionFromClient::debug_request(u64 page_id, ByteString const& request,
                     auto styles = doc->style_computer().compute_style(*static_cast<Web::DOM::Element*>(element));
                     dbgln("+ Element {}", element->debug_description());
                     for (size_t i = 0; i < Web::CSS::StyleProperties::number_of_properties; ++i) {
-                        auto property = styles->maybe_null_property(static_cast<Web::CSS::PropertyID>(i));
+                        auto property = styles.maybe_null_property(static_cast<Web::CSS::PropertyID>(i));
                         dbgln("|  {} = {}", Web::CSS::string_from_property_id(static_cast<Web::CSS::PropertyID>(i)), property ? property->to_string() : ""_string);
                     }
                     dbgln("---");
@@ -351,7 +361,7 @@ void ConnectionFromClient::debug_request(u64 page_id, ByteString const& request,
     if (request == "set-line-box-borders") {
         bool state = argument == "on";
         page->set_should_show_line_box_borders(state);
-        page->page().top_level_traversable()->set_needs_display(page->page().top_level_traversable()->viewport_rect());
+        page->page().top_level_traversable()->set_needs_display();
         return;
     }
 
@@ -423,7 +433,7 @@ void ConnectionFromClient::get_source(u64 page_id)
 {
     if (auto page = this->page(page_id); page.has_value()) {
         if (auto* doc = page->page().top_level_browsing_context().active_document())
-            async_did_get_source(page_id, doc->url(), doc->source().to_byte_string());
+            async_did_get_source(page_id, doc->url(), doc->base_url(), doc->source());
     }
 }
 
@@ -435,7 +445,7 @@ void ConnectionFromClient::inspect_dom_tree(u64 page_id)
     }
 }
 
-void ConnectionFromClient::inspect_dom_node(u64 page_id, i32 node_id, Optional<Web::CSS::Selector::PseudoElement::Type> const& pseudo_element)
+void ConnectionFromClient::inspect_dom_node(u64 page_id, Web::UniqueNodeID const& node_id, Optional<Web::CSS::Selector::PseudoElement::Type> const& pseudo_element)
 {
     auto page = this->page(page_id);
     if (!page.has_value())
@@ -450,7 +460,7 @@ void ConnectionFromClient::inspect_dom_node(u64 page_id, i32 node_id, Optional<W
         return Web::TraversalDecision::Continue;
     });
 
-    Web::DOM::Node* node = Web::DOM::Node::from_unique_id(node_id);
+    auto* node = Web::DOM::Node::from_unique_id(node_id);
     // Note: Nodes without layout (aka non-visible nodes, don't have style computed)
     if (!node || !node->layout_node()) {
         async_did_inspect_dom_node(page_id, false, {}, {}, {}, {}, {}, {});
@@ -461,7 +471,7 @@ void ConnectionFromClient::inspect_dom_node(u64 page_id, i32 node_id, Optional<W
 
     if (node->is_element()) {
         auto& element = verify_cast<Web::DOM::Element>(*node);
-        if (!element.computed_css_values()) {
+        if (!element.computed_css_values().has_value()) {
             async_did_inspect_dom_node(page_id, false, {}, {}, {}, {}, {}, {});
             return;
         }
@@ -557,7 +567,6 @@ void ConnectionFromClient::inspect_dom_node(u64 page_id, i32 node_id, Optional<W
                 MUST(font_json_object.add("name"sv, font->family()));
                 MUST(font_json_object.add("size"sv, font->point_size()));
                 MUST(font_json_object.add("weight"sv, font->weight()));
-                MUST(font_json_object.add("variant"sv, font->variant()));
                 MUST(font_json_object.finish());
             });
             MUST(serializer.finish());
@@ -573,7 +582,7 @@ void ConnectionFromClient::inspect_dom_node(u64 page_id, i32 node_id, Optional<W
 
             auto pseudo_element_style = element.pseudo_element_computed_css_values(pseudo_element.value());
             ByteString computed_values = serialize_json(*pseudo_element_style);
-            ByteString resolved_values = serialize_json(*element.resolved_css_values(pseudo_element.value()));
+            ByteString resolved_values = serialize_json(element.resolved_css_values(pseudo_element.value()));
             ByteString custom_properties_json = serialize_custom_properties_json(element, pseudo_element);
             ByteString node_box_sizing_json = serialize_node_box_sizing_json(pseudo_element_node.ptr());
             ByteString fonts_json = serialize_fonts_json(*pseudo_element_style);
@@ -610,7 +619,7 @@ void ConnectionFromClient::get_hovered_node_id(u64 page_id)
     if (!page.has_value())
         return;
 
-    i32 node_id = 0;
+    Web::UniqueNodeID node_id = 0;
 
     if (auto* document = page->page().top_level_browsing_context().active_document()) {
         if (auto* hovered_node = document->hovered_node())
@@ -620,7 +629,28 @@ void ConnectionFromClient::get_hovered_node_id(u64 page_id)
     async_did_get_hovered_node_id(page_id, node_id);
 }
 
-void ConnectionFromClient::set_dom_node_text(u64 page_id, i32 node_id, String const& text)
+void ConnectionFromClient::list_style_sheets(u64 page_id)
+{
+    auto page = this->page(page_id);
+    if (!page.has_value())
+        return;
+
+    async_inspector_did_list_style_sheets(page_id, page->list_style_sheets());
+}
+
+void ConnectionFromClient::request_style_sheet_source(u64 page_id, Web::CSS::StyleSheetIdentifier const& identifier)
+{
+    auto page = this->page(page_id);
+    if (!page.has_value())
+        return;
+
+    if (auto* document = page->page().top_level_browsing_context().active_document()) {
+        if (auto stylesheet = document->get_style_sheet_source(identifier); stylesheet.has_value())
+            async_did_get_style_sheet_source(page_id, identifier, document->base_url(), stylesheet.value());
+    }
+}
+
+void ConnectionFromClient::set_dom_node_text(u64 page_id, Web::UniqueNodeID const& node_id, String const& text)
 {
     auto* dom_node = Web::DOM::Node::from_unique_id(node_id);
     if (!dom_node || (!dom_node->is_text() && !dom_node->is_comment())) {
@@ -634,7 +664,7 @@ void ConnectionFromClient::set_dom_node_text(u64 page_id, i32 node_id, String co
     async_did_finish_editing_dom_node(page_id, character_data.unique_id());
 }
 
-void ConnectionFromClient::set_dom_node_tag(u64 page_id, i32 node_id, String const& name)
+void ConnectionFromClient::set_dom_node_tag(u64 page_id, Web::UniqueNodeID const& node_id, String const& name)
 {
     auto* dom_node = Web::DOM::Node::from_unique_id(node_id);
     if (!dom_node || !dom_node->is_element() || !dom_node->parent()) {
@@ -658,7 +688,7 @@ void ConnectionFromClient::set_dom_node_tag(u64 page_id, i32 node_id, String con
     async_did_finish_editing_dom_node(page_id, new_element->unique_id());
 }
 
-void ConnectionFromClient::add_dom_node_attributes(u64 page_id, i32 node_id, Vector<WebView::Attribute> const& attributes)
+void ConnectionFromClient::add_dom_node_attributes(u64 page_id, Web::UniqueNodeID const& node_id, Vector<WebView::Attribute> const& attributes)
 {
     auto* dom_node = Web::DOM::Node::from_unique_id(node_id);
     if (!dom_node || !dom_node->is_element()) {
@@ -676,7 +706,7 @@ void ConnectionFromClient::add_dom_node_attributes(u64 page_id, i32 node_id, Vec
     async_did_finish_editing_dom_node(page_id, element.unique_id());
 }
 
-void ConnectionFromClient::replace_dom_node_attribute(u64 page_id, i32 node_id, String const& name, Vector<WebView::Attribute> const& replacement_attributes)
+void ConnectionFromClient::replace_dom_node_attribute(u64 page_id, Web::UniqueNodeID const& node_id, String const& name, Vector<WebView::Attribute> const& replacement_attributes)
 {
     auto* dom_node = Web::DOM::Node::from_unique_id(node_id);
     if (!dom_node || !dom_node->is_element()) {
@@ -701,7 +731,7 @@ void ConnectionFromClient::replace_dom_node_attribute(u64 page_id, i32 node_id, 
     async_did_finish_editing_dom_node(page_id, element.unique_id());
 }
 
-void ConnectionFromClient::create_child_element(u64 page_id, i32 node_id)
+void ConnectionFromClient::create_child_element(u64 page_id, Web::UniqueNodeID const& node_id)
 {
     auto* dom_node = Web::DOM::Node::from_unique_id(node_id);
     if (!dom_node) {
@@ -715,7 +745,7 @@ void ConnectionFromClient::create_child_element(u64 page_id, i32 node_id)
     async_did_finish_editing_dom_node(page_id, element->unique_id());
 }
 
-void ConnectionFromClient::create_child_text_node(u64 page_id, i32 node_id)
+void ConnectionFromClient::create_child_text_node(u64 page_id, Web::UniqueNodeID const& node_id)
 {
     auto* dom_node = Web::DOM::Node::from_unique_id(node_id);
     if (!dom_node) {
@@ -729,7 +759,7 @@ void ConnectionFromClient::create_child_text_node(u64 page_id, i32 node_id)
     async_did_finish_editing_dom_node(page_id, text_node->unique_id());
 }
 
-void ConnectionFromClient::clone_dom_node(u64 page_id, i32 node_id)
+void ConnectionFromClient::clone_dom_node(u64 page_id, Web::UniqueNodeID const& node_id)
 {
     auto* dom_node = Web::DOM::Node::from_unique_id(node_id);
     if (!dom_node || !dom_node->parent_node()) {
@@ -743,7 +773,7 @@ void ConnectionFromClient::clone_dom_node(u64 page_id, i32 node_id)
     async_did_finish_editing_dom_node(page_id, dom_node_clone->unique_id());
 }
 
-void ConnectionFromClient::remove_dom_node(u64 page_id, i32 node_id)
+void ConnectionFromClient::remove_dom_node(u64 page_id, Web::UniqueNodeID const& node_id)
 {
     auto page = this->page(page_id);
     if (!page.has_value())
@@ -770,7 +800,7 @@ void ConnectionFromClient::remove_dom_node(u64 page_id, i32 node_id)
     async_did_finish_editing_dom_node(page_id, previous_dom_node->unique_id());
 }
 
-void ConnectionFromClient::get_dom_node_html(u64 page_id, i32 node_id)
+void ConnectionFromClient::get_dom_node_html(u64 page_id, Web::UniqueNodeID const& node_id)
 {
     auto* dom_node = Web::DOM::Node::from_unique_id(node_id);
     if (!dom_node)
@@ -800,7 +830,7 @@ void ConnectionFromClient::take_document_screenshot(u64 page_id)
     page->queue_screenshot_task({});
 }
 
-void ConnectionFromClient::take_dom_node_screenshot(u64 page_id, i32 node_id)
+void ConnectionFromClient::take_dom_node_screenshot(u64 page_id, Web::UniqueNodeID const& node_id)
 {
     auto page = this->page(page_id);
     if (!page.has_value())
@@ -809,10 +839,104 @@ void ConnectionFromClient::take_dom_node_screenshot(u64 page_id, i32 node_id)
     page->queue_screenshot_task(node_id);
 }
 
-Messages::WebContentServer::DumpGcGraphResponse ConnectionFromClient::dump_gc_graph(u64)
+static void append_page_text(Web::Page& page, StringBuilder& builder)
 {
-    auto gc_graph_json = Web::Bindings::main_thread_vm().heap().dump_graph();
-    return MUST(String::from_byte_string(gc_graph_json.to_byte_string()));
+    auto* document = page.top_level_browsing_context().active_document();
+    if (!document) {
+        builder.append("(no DOM tree)"sv);
+        return;
+    }
+
+    auto* body = document->body();
+    if (!body) {
+        builder.append("(no body)"sv);
+        return;
+    }
+
+    builder.append(body->inner_text());
+}
+
+static void append_layout_tree(Web::Page& page, StringBuilder& builder)
+{
+    auto* document = page.top_level_browsing_context().active_document();
+    if (!document) {
+        builder.append("(no DOM tree)"sv);
+        return;
+    }
+
+    document->update_layout();
+
+    auto* layout_root = document->layout_node();
+    if (!layout_root) {
+        builder.append("(no layout tree)"sv);
+        return;
+    }
+
+    Web::dump_tree(builder, *layout_root);
+}
+
+static void append_paint_tree(Web::Page& page, StringBuilder& builder)
+{
+    auto* document = page.top_level_browsing_context().active_document();
+    if (!document) {
+        builder.append("(no DOM tree)"sv);
+        return;
+    }
+
+    document->update_layout();
+
+    auto* layout_root = document->layout_node();
+    if (!layout_root) {
+        builder.append("(no layout tree)"sv);
+        return;
+    }
+    if (!layout_root->first_paintable()) {
+        builder.append("(no paint tree)"sv);
+        return;
+    }
+
+    Web::dump_tree(builder, *layout_root->first_paintable());
+}
+
+static void append_gc_graph(StringBuilder& builder)
+{
+    auto gc_graph = Web::Bindings::main_thread_vm().heap().dump_graph();
+    gc_graph.serialize(builder);
+}
+
+void ConnectionFromClient::request_internal_page_info(u64 page_id, WebView::PageInfoType type)
+{
+    auto page = this->page(page_id);
+    if (!page.has_value()) {
+        async_did_get_internal_page_info(page_id, type, "(no page)"_string);
+        return;
+    }
+
+    StringBuilder builder;
+
+    if (has_flag(type, WebView::PageInfoType::Text)) {
+        append_page_text(page->page(), builder);
+    }
+
+    if (has_flag(type, WebView::PageInfoType::LayoutTree)) {
+        if (!builder.is_empty())
+            builder.append("\n"sv);
+        append_layout_tree(page->page(), builder);
+    }
+
+    if (has_flag(type, WebView::PageInfoType::PaintTree)) {
+        if (!builder.is_empty())
+            builder.append("\n"sv);
+        append_paint_tree(page->page(), builder);
+    }
+
+    if (has_flag(type, WebView::PageInfoType::GCGraph)) {
+        if (!builder.is_empty())
+            builder.append("\n"sv);
+        append_gc_graph(builder);
+    }
+
+    async_did_get_internal_page_info(page_id, type, MUST(builder.to_string()));
 }
 
 Messages::WebContentServer::GetSelectedTextResponse ConnectionFromClient::get_selected_text(u64 page_id)
@@ -862,58 +986,6 @@ void ConnectionFromClient::paste(u64 page_id, String const& text)
 {
     if (auto page = this->page(page_id); page.has_value())
         page->page().focused_navigable().paste(text);
-}
-
-Messages::WebContentServer::DumpLayoutTreeResponse ConnectionFromClient::dump_layout_tree(u64 page_id)
-{
-    auto page = this->page(page_id);
-    if (!page.has_value())
-        return ByteString { "(no page)" };
-
-    auto* document = page->page().top_level_browsing_context().active_document();
-    if (!document)
-        return ByteString { "(no DOM tree)" };
-    document->update_layout();
-    auto* layout_root = document->layout_node();
-    if (!layout_root)
-        return ByteString { "(no layout tree)" };
-    StringBuilder builder;
-    Web::dump_tree(builder, *layout_root);
-    return builder.to_byte_string();
-}
-
-Messages::WebContentServer::DumpPaintTreeResponse ConnectionFromClient::dump_paint_tree(u64 page_id)
-{
-    auto page = this->page(page_id);
-    if (!page.has_value())
-        return ByteString { "(no page)" };
-
-    auto* document = page->page().top_level_browsing_context().active_document();
-    if (!document)
-        return ByteString { "(no DOM tree)" };
-    document->update_layout();
-    auto* layout_root = document->layout_node();
-    if (!layout_root)
-        return ByteString { "(no layout tree)" };
-    if (!layout_root->paintable())
-        return ByteString { "(no paint tree)" };
-    StringBuilder builder;
-    Web::dump_tree(builder, *layout_root->paintable());
-    return builder.to_byte_string();
-}
-
-Messages::WebContentServer::DumpTextResponse ConnectionFromClient::dump_text(u64 page_id)
-{
-    auto page = this->page(page_id);
-    if (!page.has_value())
-        return ByteString { "(no page)" };
-
-    auto* document = page->page().top_level_browsing_context().active_document();
-    if (!document)
-        return ByteString { "(no DOM tree)" };
-    if (!document->body())
-        return ByteString { "(no body)" };
-    return document->body()->inner_text();
 }
 
 void ConnectionFromClient::set_content_filters(u64, Vector<String> const& filters)
@@ -1009,6 +1081,12 @@ void ConnectionFromClient::set_window_size(u64 page_id, Web::DevicePixelSize siz
 {
     if (auto page = this->page(page_id); page.has_value())
         page->set_window_size(size);
+}
+
+void ConnectionFromClient::did_update_window_rect(u64 page_id)
+{
+    if (auto page = this->page(page_id); page.has_value())
+        page->page().did_update_window_rect();
 }
 
 Messages::WebContentServer::GetLocalStorageEntriesResponse ConnectionFromClient::get_local_storage_entries(u64 page_id)
@@ -1159,6 +1237,12 @@ void ConnectionFromClient::set_user_style(u64 page_id, String const& source)
 void ConnectionFromClient::enable_inspector_prototype(u64)
 {
     Web::HTML::Window::set_inspector_object_exposed(true);
+}
+
+void ConnectionFromClient::system_time_zone_changed()
+{
+    JS::clear_system_time_zone_cache();
+    Unicode::clear_system_time_zone_cache();
 }
 
 }

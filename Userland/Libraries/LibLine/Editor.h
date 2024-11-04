@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, the SerenityOS developers.
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -218,6 +218,7 @@ public:
     void clear_line();
     void insert(ByteString const&);
     void insert(StringView);
+    void insert(Utf8View&);
     void insert(Utf32View const&);
     void insert(u32 const);
     void stylize(Span const&, Style const&);

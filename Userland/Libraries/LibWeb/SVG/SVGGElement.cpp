@@ -1,10 +1,12 @@
 /*
- * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/StringBuilder.h>
+#include <LibWeb/Bindings/Intrinsics.h>
+#include <LibWeb/Bindings/SVGGElementPrototype.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/Layout/SVGGraphicsBox.h>
 #include <LibWeb/SVG/SVGGElement.h>
@@ -18,7 +20,13 @@ SVGGElement::SVGGElement(DOM::Document& document, DOM::QualifiedName qualified_n
 {
 }
 
-JS::GCPtr<Layout::Node> SVGGElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
+void SVGGElement::initialize(JS::Realm& realm)
+{
+    Base::initialize(realm);
+    WEB_SET_PROTOTYPE_FOR_INTERFACE(SVGGElement);
+}
+
+JS::GCPtr<Layout::Node> SVGGElement::create_layout_node(CSS::StyleProperties style)
 {
     return heap().allocate_without_realm<Layout::SVGGraphicsBox>(document(), *this, move(style));
 }

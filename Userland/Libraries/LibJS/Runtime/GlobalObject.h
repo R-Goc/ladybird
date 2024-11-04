@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2020-2022, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -43,7 +43,7 @@ private:
     JS_DECLARE_NATIVE_FUNCTION(unescape);
 };
 
-Object& set_default_global_bindings(Realm&);
+void set_default_global_bindings(Realm&);
 
 template<>
 inline bool Object::fast_is<GlobalObject>() const { return is_global_object(); }

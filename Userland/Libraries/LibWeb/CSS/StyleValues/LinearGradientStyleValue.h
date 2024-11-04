@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022-2023, MacDue <macdue@dueutil.tech>
@@ -46,7 +46,7 @@ public:
 
     virtual String to_string() const override;
     virtual ~LinearGradientStyleValue() override = default;
-    virtual bool equals(StyleValue const& other) const override;
+    virtual bool equals(CSSStyleValue const& other) const override;
 
     Vector<LinearColorStopListElement> const& color_stop_list() const
     {

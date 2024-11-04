@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -12,42 +12,58 @@
 
 namespace AK {
 
-static ErrorOr<ByteBuffer> decode_base64_impl(StringView input, simdutf::base64_options options)
+size_t size_required_to_decode_base64(StringView input)
 {
-    ByteBuffer output;
-    TRY(output.try_resize(simdutf::maximal_binary_length_from_base64(input.characters_without_null_termination(), input.length())));
+    return simdutf::maximal_binary_length_from_base64(input.characters_without_null_termination(), input.length());
+}
 
-    auto result = simdutf::base64_to_binary(
+static ErrorOr<size_t, InvalidBase64> decode_base64_into_impl(StringView input, ByteBuffer& output, simdutf::base64_options options)
+{
+    size_t output_length = output.size();
+
+    auto result = simdutf::base64_to_binary_safe(
         input.characters_without_null_termination(),
         input.length(),
         reinterpret_cast<char*>(output.data()),
+        output_length,
         options);
 
-    if (result.error != simdutf::SUCCESS)
-        return Error::from_string_literal("Invalid base64-encoded data");
+    if (result.error != simdutf::SUCCESS && result.error != simdutf::OUTPUT_BUFFER_TOO_SMALL) {
+        output.resize((result.count / 4) * 3);
 
-    output.resize(result.count);
+        return InvalidBase64 {
+            .error = Error::from_string_literal("Invalid base64-encoded data"),
+            .valid_input_bytes = result.count,
+        };
+    }
+
+    VERIFY(output_length <= output.size());
+    output.resize(output_length);
+
+    return result.error == simdutf::SUCCESS ? input.length() : result.count;
+}
+
+static ErrorOr<ByteBuffer> decode_base64_impl(StringView input, simdutf::base64_options options)
+{
+    ByteBuffer output;
+    TRY(output.try_resize(size_required_to_decode_base64(input)));
+
+    if (auto result = decode_base64_into_impl(input, output, options); result.is_error())
+        return result.release_error().error;
+
     return output;
 }
 
 static ErrorOr<String> encode_base64_impl(StringView input, simdutf::base64_options options)
 {
     Vector<u8> output;
+    TRY(output.try_resize(simdutf::base64_length_from_binary(input.length(), options)));
 
-    // simdutf does not append padding to base64url encodings. We use the default encoding option here to allocate room
-    // for the padding characters that we will later append ourselves if necessary.
-    TRY(output.try_resize(simdutf::base64_length_from_binary(input.length(), simdutf::base64_default)));
-
-    auto size_written = simdutf::binary_to_base64(
+    simdutf::binary_to_base64(
         input.characters_without_null_termination(),
         input.length(),
         reinterpret_cast<char*>(output.data()),
         options);
-
-    if (options == simdutf::base64_url) {
-        for (size_t i = size_written; i < output.size(); ++i)
-            output[i] = '=';
-    }
 
     return String::from_utf8_without_validation(output);
 }
@@ -62,14 +78,32 @@ ErrorOr<ByteBuffer> decode_base64url(StringView input)
     return decode_base64_impl(input, simdutf::base64_url);
 }
 
-ErrorOr<String> encode_base64(ReadonlyBytes input)
+ErrorOr<size_t, InvalidBase64> decode_base64_into(StringView input, ByteBuffer& output)
 {
-    return encode_base64_impl(input, simdutf::base64_default);
+    return decode_base64_into_impl(input, output, simdutf::base64_default);
 }
 
-ErrorOr<String> encode_base64url(ReadonlyBytes input)
+ErrorOr<size_t, InvalidBase64> decode_base64url_into(StringView input, ByteBuffer& output)
 {
-    return encode_base64_impl(input, simdutf::base64_url);
+    return decode_base64_into_impl(input, output, simdutf::base64_url);
+}
+
+ErrorOr<String> encode_base64(ReadonlyBytes input, OmitPadding omit_padding)
+{
+    auto options = omit_padding == OmitPadding::Yes
+        ? simdutf::base64_default_no_padding
+        : simdutf::base64_default;
+
+    return encode_base64_impl(input, options);
+}
+
+ErrorOr<String> encode_base64url(ReadonlyBytes input, OmitPadding omit_padding)
+{
+    auto options = omit_padding == OmitPadding::Yes
+        ? simdutf::base64_url
+        : simdutf::base64_url_with_padding;
+
+    return encode_base64_impl(input, options);
 }
 
 }

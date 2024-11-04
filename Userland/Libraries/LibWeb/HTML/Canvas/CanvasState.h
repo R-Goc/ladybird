@@ -13,7 +13,8 @@
 #include <LibGfx/Color.h>
 #include <LibGfx/Font/Font.h>
 #include <LibGfx/PaintStyle.h>
-#include <LibGfx/PathClipper.h>
+#include <LibGfx/Path.h>
+#include <LibGfx/WindingRule.h>
 #include <LibWeb/Bindings/CanvasRenderingContext2DPrototype.h>
 #include <LibWeb/HTML/CanvasGradient.h>
 #include <LibWeb/HTML/CanvasPattern.h>
@@ -24,6 +25,9 @@ namespace Web::HTML {
 class CanvasState {
 public:
     virtual ~CanvasState() = default;
+
+    virtual Gfx::Painter* painter_for_canvas_state() = 0;
+    virtual Gfx::Path& path_for_canvas_state() = 0;
 
     void save();
     void restore();
@@ -59,7 +63,7 @@ public:
         {
             return m_fill_or_stroke_style.visit(
                 [&](Gfx::Color color) -> JsFillOrStrokeStyle {
-                    return color.to_string();
+                    return color.to_string(Gfx::Color::HTMLCompatibleSerialization::Yes);
                 },
                 [&](auto handle) -> JsFillOrStrokeStyle {
                     return handle;
@@ -76,13 +80,15 @@ public:
         Gfx::AffineTransform transform;
         FillOrStrokeStyle fill_style { Gfx::Color::Black };
         FillOrStrokeStyle stroke_style { Gfx::Color::Black };
+        float shadow_offset_x { 0.0f };
+        float shadow_offset_y { 0.0f };
+        Gfx::Color shadow_color { Gfx::Color::Transparent };
         float line_width { 1 };
         Vector<double> dash_list;
         bool image_smoothing_enabled { true };
         Bindings::ImageSmoothingQuality image_smoothing_quality { Bindings::ImageSmoothingQuality::Low };
         float global_alpha = { 1 };
-        Optional<Gfx::ClipPath> clip;
-        RefPtr<CSS::StyleValue> font_style_value { nullptr };
+        RefPtr<CSS::CSSStyleValue> font_style_value { nullptr };
         RefPtr<Gfx::Font const> current_font { nullptr };
         Bindings::CanvasTextAlign text_align { Bindings::CanvasTextAlign::Start };
         Bindings::CanvasTextBaseline text_baseline { Bindings::CanvasTextBaseline::Alphabetic };

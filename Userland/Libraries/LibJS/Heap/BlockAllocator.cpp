@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021-2023, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -21,9 +21,6 @@
 #endif
 
 namespace JS {
-
-// NOTE: If this changes, we need to update the mmap() code to ensure correct alignment.
-static_assert(HeapBlock::block_size == 4096);
 
 BlockAllocator::~BlockAllocator()
 {

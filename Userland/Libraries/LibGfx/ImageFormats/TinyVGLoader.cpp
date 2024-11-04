@@ -12,9 +12,9 @@
 #include <AK/Variant.h>
 #include <LibCore/File.h>
 #include <LibGfx/AntiAliasingPainter.h>
+#include <LibGfx/DeprecatedPainter.h>
 #include <LibGfx/ImageFormats/TinyVGLoader.h>
 #include <LibGfx/Line.h>
-#include <LibGfx/Painter.h>
 #include <LibGfx/Point.h>
 
 namespace Gfx {
@@ -255,9 +255,9 @@ public:
         return FloatLine { TRY(read_point()), TRY(read_point()) };
     }
 
-    ErrorOr<Path> read_path(u32 segment_count)
+    ErrorOr<DeprecatedPath> read_path(u32 segment_count)
     {
-        Path path;
+        DeprecatedPath path;
         auto segment_lengths = TRY(FixedArray<u32>::create(segment_count));
         for (auto& command_count : segment_lengths) {
             command_count = TRY(read_var_uint()) + 1;
@@ -367,8 +367,8 @@ ErrorOr<NonnullRefPtr<TinyVGDecodedImageData>> TinyVGDecodedImageData::decode(St
     auto color_table = TRY(decode_color_table(stream, header.color_encoding, header.color_count));
     TinyVGReader reader { stream, header, color_table.span() };
 
-    auto rectangle_to_path = [](FloatRect const& rect) -> Path {
-        Path path;
+    auto rectangle_to_path = [](FloatRect const& rect) -> DeprecatedPath {
+        DeprecatedPath path;
         path.move_to({ rect.x(), rect.y() });
         path.line_to({ rect.x() + rect.width(), rect.y() });
         path.line_to({ rect.x() + rect.width(), rect.y() + rect.height() });
@@ -390,7 +390,7 @@ ErrorOr<NonnullRefPtr<TinyVGDecodedImageData>> TinyVGDecodedImageData::decode(St
             break;
         case Command::FillPolygon: {
             auto header = TRY(reader.read_fill_command_header(style_type));
-            Path polygon;
+            DeprecatedPath polygon;
             polygon.move_to(TRY(reader.read_point()));
             for (u32 i = 0; i < header.count - 1; i++)
                 polygon.line_to(TRY(reader.read_point()));
@@ -413,7 +413,7 @@ ErrorOr<NonnullRefPtr<TinyVGDecodedImageData>> TinyVGDecodedImageData::decode(St
         }
         case Command::DrawLines: {
             auto header = TRY(reader.read_draw_command_header(style_type));
-            Path path;
+            DeprecatedPath path;
             for (u32 i = 0; i < header.count; i++) {
                 auto line = TRY(reader.read_line());
                 path.move_to(line.a());
@@ -425,7 +425,7 @@ ErrorOr<NonnullRefPtr<TinyVGDecodedImageData>> TinyVGDecodedImageData::decode(St
         case Command::DrawLineStrip:
         case Command::DrawLineLoop: {
             auto header = TRY(reader.read_draw_command_header(style_type));
-            Path path;
+            DeprecatedPath path;
             path.move_to(TRY(reader.read_point()));
             for (u32 i = 0; i < header.count - 1; i++)
                 path.line_to(TRY(reader.read_point()));
@@ -442,7 +442,7 @@ ErrorOr<NonnullRefPtr<TinyVGDecodedImageData>> TinyVGDecodedImageData::decode(St
         }
         case Command::OutlineFillPolygon: {
             auto header = TRY(reader.read_outline_fill_command_header(style_type));
-            Path polygon;
+            DeprecatedPath polygon;
             polygon.move_to(TRY(reader.read_point()));
             for (u32 i = 0; i < header.count - 1; i++)
                 polygon.line_to(TRY(reader.read_point()));
@@ -472,7 +472,7 @@ ErrorOr<NonnullRefPtr<TinyVGDecodedImageData>> TinyVGDecodedImageData::decode(St
     return TRY(adopt_nonnull_ref_or_enomem(new (nothrow) TinyVGDecodedImageData({ header.width, header.height }, move(draw_commands))));
 }
 
-void TinyVGDecodedImageData::draw_transformed(Painter& painter, AffineTransform transform) const
+void TinyVGDecodedImageData::draw_transformed(DeprecatedPainter& painter, AffineTransform transform) const
 {
     // FIXME: Correctly handle non-uniform scales.
     auto scale = max(transform.x_scale(), transform.y_scale());

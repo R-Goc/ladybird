@@ -130,9 +130,22 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<EventSource>> EventSource::construct_impl(J
         else {
             event_source->announce_the_connection();
 
-            auto process_body_chunk = JS::create_heap_function(realm.heap(), [event_source](ByteBuffer body) {
-                event_source->interpret_response(body);
+            auto process_body_chunk = JS::create_heap_function(realm.heap(), [event_source, pending_data = ByteBuffer()](ByteBuffer body) mutable {
+                if (pending_data.is_empty())
+                    pending_data = move(body);
+                else
+                    pending_data.append(body);
+
+                auto last_line_break = AK::StringUtils::find_any_of(pending_data, "\r\n"sv, AK::StringUtils::SearchDirection::Backward);
+                if (!last_line_break.has_value())
+                    return;
+
+                auto end_index = *last_line_break + 1;
+                event_source->interpret_response({ pending_data.bytes().slice(0, end_index) });
+
+                pending_data = MUST(pending_data.slice(end_index, pending_data.size() - end_index));
             });
+
             auto process_end_of_body = JS::create_heap_function(realm.heap(), []() {
                 // This case is handled by `process_event_source_end_of_body` above.
             });
@@ -285,9 +298,9 @@ void EventSource::reestablish_the_connection()
     }));
 
     // 2. Wait a delay equal to the reconnection time of the event source.
-    HTML::main_thread_event_loop().spin_until([&, delay_start = MonotonicTime::now()]() {
+    HTML::main_thread_event_loop().spin_until(JS::create_heap_function(heap(), [&, delay_start = MonotonicTime::now()]() {
         return (MonotonicTime::now() - delay_start) >= m_reconnection_time;
-    });
+    }));
 
     // 3. Optionally, wait some more. In particular, if the previous attempt failed, then user agents might introduce
     //    an exponential backoff delay to avoid overloading a potentially already overloaded server. Alternatively, if
@@ -296,7 +309,7 @@ void EventSource::reestablish_the_connection()
 
     // 4. Wait until the aforementioned task has run, if it has not yet run.
     if (!initial_task_has_run) {
-        HTML::main_thread_event_loop().spin_until([&]() { return initial_task_has_run; });
+        HTML::main_thread_event_loop().spin_until(JS::create_heap_function(heap(), [&]() { return initial_task_has_run; }));
     }
 
     // 5. Queue a task to run the following steps:
@@ -436,7 +449,7 @@ void EventSource::dispatch_the_event()
     //    the value of the event type buffer.
     MessageEventInit init {};
     init.data = JS::PrimitiveString::create(vm(), data_buffer);
-    init.origin = MUST(String::from_byte_string(m_url.serialize_origin()));
+    init.origin = MUST(String::from_byte_string(m_url.origin().serialize()));
     init.last_event_id = last_event_id;
 
     auto type = m_event_type.is_empty() ? HTML::EventNames::message : m_event_type;

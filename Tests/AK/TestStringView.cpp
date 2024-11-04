@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -38,6 +38,11 @@ TEST_CASE(compare_views)
     EXPECT_EQ(view1, foo1);
     EXPECT_EQ(view1, foo2);
     EXPECT_EQ(view1, "foo");
+}
+
+TEST_CASE(conforms_to_iterator_protocol)
+{
+    static_assert(std::random_access_iterator<StringView::ConstIterator>);
 }
 
 TEST_CASE(string_view_literal_operator)

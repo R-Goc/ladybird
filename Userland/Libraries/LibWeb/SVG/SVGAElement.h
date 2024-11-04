@@ -23,7 +23,7 @@ public:
 
     JS::NonnullGCPtr<DOM::DOMTokenList> rel_list();
 
-    virtual JS::GCPtr<Layout::Node> create_layout_node(NonnullRefPtr<CSS::StyleProperties>) override;
+    virtual JS::GCPtr<Layout::Node> create_layout_node(CSS::StyleProperties) override;
 
 private:
     SVGAElement(DOM::Document&, DOM::QualifiedName);
@@ -33,6 +33,7 @@ private:
 
     // ^DOM::Element
     virtual void attribute_changed(FlyString const& name, Optional<String> const& old_value, Optional<String> const& value) override;
+    virtual i32 default_tab_index_value() const override;
 
     JS::GCPtr<DOM::DOMTokenList> m_rel_list;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -32,6 +32,7 @@ private:
     JS_DECLARE_NATIVE_FUNCTION(log);
     JS_DECLARE_NATIVE_FUNCTION(trace);
     JS_DECLARE_NATIVE_FUNCTION(warn);
+    JS_DECLARE_NATIVE_FUNCTION(table);
     JS_DECLARE_NATIVE_FUNCTION(dir);
     JS_DECLARE_NATIVE_FUNCTION(count);
     JS_DECLARE_NATIVE_FUNCTION(count_reset);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022-2023, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -22,6 +22,7 @@
 #include <LibWeb/HTML/ActivateTab.h>
 #include <LibWebView/ViewImplementation.h>
 #include <QAbstractScrollArea>
+#include <QMenu>
 #include <QTimer>
 #include <QUrl>
 
@@ -58,6 +59,8 @@ public:
     virtual void wheelEvent(QWheelEvent*) override;
     virtual void mouseDoubleClickEvent(QMouseEvent*) override;
     virtual void dragEnterEvent(QDragEnterEvent*) override;
+    virtual void dragMoveEvent(QDragMoveEvent*) override;
+    virtual void dragLeaveEvent(QDragLeaveEvent*) override;
     virtual void dropEvent(QDropEvent*) override;
     virtual void keyPressEvent(QKeyEvent* event) override;
     virtual void keyReleaseEvent(QKeyEvent* event) override;
@@ -69,11 +72,7 @@ public:
     virtual void focusOutEvent(QFocusEvent*) override;
     virtual bool event(QEvent*) override;
 
-    ErrorOr<String> dump_layout_tree();
-
     void set_viewport_rect(Gfx::IntRect);
-    void set_window_size(Gfx::IntSize);
-    void set_window_position(Gfx::IntPoint);
     void set_device_pixel_ratio(double);
 
     enum class PaletteMode {
@@ -85,6 +84,9 @@ public:
     using ViewImplementation::client;
 
     QPoint map_point_to_global_position(Gfx::IntPoint) const;
+
+public slots:
+    void select_dropdown_action();
 
 signals:
     void urls_dropped(QList<QUrl> const&);
@@ -101,8 +103,13 @@ private:
     void update_cursor(Gfx::StandardCursor cursor);
 
     void enqueue_native_event(Web::MouseEvent::Type, QSinglePointEvent const& event);
+
+    void enqueue_native_event(Web::DragEvent::Type, QDropEvent const& event);
+    void finish_handling_drag_event(Web::DragEvent const&);
+
     void enqueue_native_event(Web::KeyEvent::Type, QKeyEvent const& event);
     void finish_handling_key_event(Web::KeyEvent const&);
+
     void update_screen_rects();
 
     bool m_tooltip_override { false };
@@ -112,6 +119,8 @@ private:
     bool m_should_show_line_box_borders { false };
 
     Gfx::IntSize m_viewport_size;
+
+    QMenu* m_select_dropdown { nullptr };
 };
 
 }

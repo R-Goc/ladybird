@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2022, Dex♪ <dexes.ttp@gmail.com>
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -51,7 +51,7 @@ NonnullRefPtr<Core::Promise<Web::Platform::DecodedImage>> ImageCodecPlugin::deco
             Web::Platform::DecodedImage decoded_image;
             decoded_image.is_animated = result.is_animated;
             decoded_image.loop_count = result.loop_count;
-            for (auto const& frame : result.frames) {
+            for (auto& frame : result.frames) {
                 decoded_image.frames.empend(move(frame.bitmap), frame.duration);
             }
             promise->resolve(move(decoded_image));

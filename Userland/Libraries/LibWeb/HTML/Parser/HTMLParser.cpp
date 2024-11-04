@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2024, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2024, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Luke Wilde <lukew@serenityos.org>
  * Copyright (c) 2023-2024, Shannon Booth <shannon@serenityos.org>
  *
@@ -29,6 +29,7 @@
 #include <LibWeb/HTML/EventNames.h>
 #include <LibWeb/HTML/HTMLFormElement.h>
 #include <LibWeb/HTML/HTMLHeadElement.h>
+#include <LibWeb/HTML/HTMLHtmlElement.h>
 #include <LibWeb/HTML/HTMLScriptElement.h>
 #include <LibWeb/HTML/HTMLTableElement.h>
 #include <LibWeb/HTML/HTMLTemplateElement.h>
@@ -113,22 +114,33 @@ static Vector<StringView> const s_quirks_public_ids = {
 };
 
 // https://html.spec.whatwg.org/multipage/parsing.html#mathml-text-integration-point
-static bool is_mathml_text_integration_point(DOM::Element const&)
+static bool is_mathml_text_integration_point(DOM::Element const& element)
 {
-    // FIXME: Implement.
-    return false;
+    // A node is a MathML text integration point if it is one of the following elements:
+    // - A MathML mi element
+    // - A MathML mo element
+    // - A MathML mn element
+    // - A MathML ms element
+    // - A MathML mtext element
+    return element.tag_name().is_one_of(MathML::TagNames::mi, MathML::TagNames::mo, MathML::TagNames::mn, MathML::TagNames::ms, MathML::TagNames::mtext);
 }
 
 // https://html.spec.whatwg.org/multipage/parsing.html#html-integration-point
 static bool is_html_integration_point(DOM::Element const& element)
 {
     // A node is an HTML integration point if it is one of the following elements:
-    // FIXME: A MathML annotation-xml element whose start tag token had an attribute with the name "encoding" whose value was an ASCII case-insensitive match for the string "text/html"
-    // FIXME: A MathML annotation-xml element whose start tag token had an attribute with the name "encoding" whose value was an ASCII case-insensitive match for the string "application/xhtml+xml"
+    // - A MathML annotation-xml element whose start tag token had an attribute with the name "encoding" whose value was an ASCII case-insensitive match for the string "text/html"
+    // - A MathML annotation-xml element whose start tag token had an attribute with the name "encoding" whose value was an ASCII case-insensitive match for the string "application/xhtml+xml"
+    if (element.namespace_uri() == Namespace::MathML
+        && element.tag_name() == MathML::TagNames::annotation_xml) {
+        auto encoding = element.attribute("encoding"_fly_string);
+        if (encoding.has_value() && (encoding->equals_ignoring_ascii_case("text/html"sv) || encoding->equals_ignoring_ascii_case("application/xhtml+xml"sv)))
+            return true;
+    }
 
-    // An SVG foreignObject element
-    // An SVG desc element
-    // An SVG title element
+    // - An SVG foreignObject element
+    // - An SVG desc element
+    // - An SVG title element
     if (element.tag_name().is_one_of(SVG::TagNames::foreignObject, SVG::TagNames::desc, SVG::TagNames::title))
         return true;
 
@@ -177,7 +189,7 @@ void HTMLParser::run(HTMLTokenizer::StopAtInsertionPoint stop_at_insertion_point
     for (;;) {
         // FIXME: Find a better way to say that we come from Document::close() and want to process EOF.
         if (!m_tokenizer.is_eof_inserted() && m_tokenizer.is_insertion_point_reached())
-            return;
+            break;
 
         auto optional_token = m_tokenizer.next_token(stop_at_insertion_point);
         if (!optional_token.has_value())
@@ -189,14 +201,17 @@ void HTMLParser::run(HTMLTokenizer::StopAtInsertionPoint stop_at_insertion_point
         // https://html.spec.whatwg.org/multipage/parsing.html#tree-construction-dispatcher
         // As each token is emitted from the tokenizer, the user agent must follow the appropriate steps from the following list, known as the tree construction dispatcher:
         if (m_stack_of_open_elements.is_empty()
-            || adjusted_current_node().namespace_uri() == Namespace::HTML
-            || (is_html_integration_point(adjusted_current_node()) && (token.is_start_tag() || token.is_character()))
+            || adjusted_current_node()->namespace_uri() == Namespace::HTML
+            || (is_mathml_text_integration_point(*adjusted_current_node()) && token.is_start_tag() && token.tag_name() != MathML::TagNames::mglyph && token.tag_name() != MathML::TagNames::malignmark)
+            || (is_mathml_text_integration_point(*adjusted_current_node()) && token.is_character())
+            || (adjusted_current_node()->namespace_uri() == Namespace::MathML && adjusted_current_node()->tag_name() == MathML::TagNames::annotation_xml && token.is_start_tag() && token.tag_name() == SVG::TagNames::svg)
+            || (is_html_integration_point(*adjusted_current_node()) && (token.is_start_tag() || token.is_character()))
             || token.is_end_of_file()) {
             // -> If the stack of open elements is empty
             // -> If the adjusted current node is an element in the HTML namespace
-            // FIXME: -> If the adjusted current node is a MathML text integration point and the token is a start tag whose tag name is neither "mglyph" nor "malignmark"
-            // FIXME: -> If the adjusted current node is a MathML text integration point and the token is a character token
-            // FIXME: -> If the adjusted current node is a MathML annotation-xml element and the token is a start tag whose tag name is "svg"
+            // -> If the adjusted current node is a MathML text integration point and the token is a start tag whose tag name is neither "mglyph" nor "malignmark"
+            // -> If the adjusted current node is a MathML text integration point and the token is a character token
+            // -> If the adjusted current node is a MathML annotation-xml element and the token is a start tag whose tag name is "svg"
             // -> If the adjusted current node is an HTML integration point and the token is a start tag
             // -> If the adjusted current node is an HTML integration point and the token is a character token
             // -> If the token is an end-of-file token
@@ -231,6 +246,8 @@ void HTMLParser::run(const URL::URL& url, HTMLTokenizer::StopAtInsertionPoint st
 // https://html.spec.whatwg.org/multipage/parsing.html#the-end
 void HTMLParser::the_end(JS::NonnullGCPtr<DOM::Document> document, JS::GCPtr<HTMLParser> parser)
 {
+    auto& heap = document->heap();
+
     // Once the user agent stops parsing the document, the user agent must run the following steps:
 
     // NOTE: This is a static method because the spec sometimes wants us to "act as if the user agent had stopped
@@ -281,10 +298,10 @@ void HTMLParser::the_end(JS::NonnullGCPtr<DOM::Document> document, JS::GCPtr<HTM
     while (!document->scripts_to_execute_when_parsing_has_finished().is_empty()) {
         // 1. Spin the event loop until the first script in the list of scripts that will execute when the document has finished parsing
         //    has its "ready to be parser-executed" flag set and the parser's Document has no style sheet that is blocking scripts.
-        main_thread_event_loop().spin_until([&] {
+        main_thread_event_loop().spin_until(JS::create_heap_function(heap, [&] {
             return document->scripts_to_execute_when_parsing_has_finished().first()->is_ready_to_be_parser_executed()
                 && !document->has_a_style_sheet_that_is_blocking_scripts();
-        });
+        }));
 
         // 2. Execute the first script in the list of scripts that will execute when the document has finished parsing.
         document->scripts_to_execute_when_parsing_has_finished().first()->execute_script();
@@ -294,7 +311,7 @@ void HTMLParser::the_end(JS::NonnullGCPtr<DOM::Document> document, JS::GCPtr<HTM
     }
 
     // 6. Queue a global task on the DOM manipulation task source given the Document's relevant global object to run the following substeps:
-    queue_global_task(HTML::Task::Source::DOMManipulation, *document, JS::create_heap_function(document->heap(), [document = document] {
+    queue_global_task(HTML::Task::Source::DOMManipulation, *document, JS::create_heap_function(heap, [document = document] {
         // 1. Set the Document's load timing info's DOM content loaded event start time to the current high resolution time given the Document's relevant global object.
         document->load_timing_info().dom_content_loaded_event_start_time = HighResolutionTime::current_high_resolution_time(relevant_global_object(*document));
 
@@ -312,14 +329,14 @@ void HTMLParser::the_end(JS::NonnullGCPtr<DOM::Document> document, JS::GCPtr<HTM
     }));
 
     // 7. Spin the event loop until the set of scripts that will execute as soon as possible and the list of scripts that will execute in order as soon as possible are empty.
-    main_thread_event_loop().spin_until([&] {
+    main_thread_event_loop().spin_until(JS::create_heap_function(heap, [&] {
         return document->scripts_to_execute_as_soon_as_possible().is_empty();
-    });
+    }));
 
     // 8. Spin the event loop until there is nothing that delays the load event in the Document.
-    main_thread_event_loop().spin_until([&] {
+    main_thread_event_loop().spin_until(JS::create_heap_function(heap, [&] {
         return !document->anything_is_delaying_the_load_event();
-    });
+    }));
 
     // 9. Queue a global task on the DOM manipulation task source given the Document's relevant global object to run the following steps:
     queue_global_task(HTML::Task::Source::DOMManipulation, *document, JS::create_heap_function(document->heap(), [document = document] {
@@ -591,13 +608,15 @@ AnythingElse:
     return;
 }
 
-DOM::Element& HTMLParser::current_node()
+JS::GCPtr<DOM::Element> HTMLParser::current_node()
 {
+    if (m_stack_of_open_elements.is_empty())
+        return nullptr;
     return m_stack_of_open_elements.current_node();
 }
 
 // https://html.spec.whatwg.org/multipage/parsing.html#adjusted-current-node
-DOM::Element& HTMLParser::adjusted_current_node()
+JS::GCPtr<DOM::Element> HTMLParser::adjusted_current_node()
 {
     // The adjusted current node is the context element if the parser was created as part of the
     // HTML fragment parsing algorithm and the stack of open elements has only one element in it
@@ -609,8 +628,10 @@ DOM::Element& HTMLParser::adjusted_current_node()
     return current_node();
 }
 
-DOM::Element& HTMLParser::node_before_current_node()
+JS::GCPtr<DOM::Element> HTMLParser::node_before_current_node()
 {
+    if (m_stack_of_open_elements.elements().size() < 2)
+        return nullptr;
     return *m_stack_of_open_elements.elements().at(m_stack_of_open_elements.elements().size() - 2);
 }
 
@@ -618,7 +639,7 @@ DOM::Element& HTMLParser::node_before_current_node()
 HTMLParser::AdjustedInsertionLocation HTMLParser::find_appropriate_place_for_inserting_node(JS::GCPtr<DOM::Element> override_target)
 {
     // 1. If there was an override target specified, then let target be the override target.
-    auto& target = override_target ? *override_target.ptr() : current_node();
+    auto& target = override_target ? *override_target.ptr() : *current_node();
     HTMLParser::AdjustedInsertionLocation adjusted_insertion_location;
 
     // 2. Determine the adjusted insertion location using the first matching steps from the following list:
@@ -969,7 +990,7 @@ void HTMLParser::handle_in_head(HTMLToken& token)
         // - the adjusted current node is not the topmost element in the stack of open elements,
         if (!shadowrootmode.has_value()
             || !document.allow_declarative_shadow_roots()
-            || &adjusted_current_node() == &m_stack_of_open_elements.first()) {
+            || adjusted_current_node() == &m_stack_of_open_elements.first()) {
             // then insert an HTML element for the token.
             (void)insert_html_element(token);
         }
@@ -977,7 +998,7 @@ void HTMLParser::handle_in_head(HTMLToken& token)
         // Otherwise:
         else {
             // 1. Let declarative shadow host element be adjusted current node.
-            auto& declarative_shadow_host_element = adjusted_current_node();
+            auto& declarative_shadow_host_element = *adjusted_current_node();
 
             // 2. Let template be the result of insert a foreign element for template start tag, with HTML namespace and true.
             auto template_ = insert_foreign_element(template_start_tag, Namespace::HTML, OnlyAddToElementStack::Yes);
@@ -1044,7 +1065,7 @@ void HTMLParser::handle_in_head(HTMLToken& token)
         generate_all_implied_end_tags_thoroughly();
 
         // 2. If the current node is not a template element, then this is a parse error.
-        if (current_node().local_name() != HTML::TagNames::template_)
+        if (current_node()->local_name() != HTML::TagNames::template_)
             log_parse_error();
 
         // 3. Pop elements from the stack of open elements until a template element has been popped from the stack.
@@ -1072,42 +1093,72 @@ AnythingElse:
     process_using_the_rules_for(m_insertion_mode, token);
 }
 
+// https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inheadnoscript
 void HTMLParser::handle_in_head_noscript(HTMLToken& token)
 {
+    // -> A DOCTYPE token
     if (token.is_doctype()) {
+        // Parse error. Ignore the token.
         log_parse_error();
         return;
     }
 
+    // -> A start tag whose tag name is "html"
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::html) {
+        // Process the token using the rules for the "in body" insertion mode.
         process_using_the_rules_for(InsertionMode::InBody, token);
         return;
     }
 
+    // -> An end tag whose tag name is "noscript"
     if (token.is_end_tag() && token.tag_name() == HTML::TagNames::noscript) {
+        // Pop the current node (which will be a noscript element) from the stack of open elements;
+        // the new current node will be a head element.
         (void)m_stack_of_open_elements.pop();
+
+        // Switch the insertion mode to "in head".
         m_insertion_mode = InsertionMode::InHead;
         return;
     }
 
-    if (token.is_parser_whitespace() || token.is_comment() || (token.is_start_tag() && token.tag_name().is_one_of(HTML::TagNames::basefont, HTML::TagNames::bgsound, HTML::TagNames::link, HTML::TagNames::meta, HTML::TagNames::noframes, HTML::TagNames::style))) {
+    // -> A character token that is one of U+0009 CHARACTER TABULATION, U+000A LINE FEED (LF), U+000C FORM FEED (FF), U+000D CARRIAGE RETURN (CR), or U+0020 SPACE
+    // -> A comment token
+    // -> A start tag whose tag name is one of: "basefont", "bgsound", "link", "meta", "noframes", "style"
+    if (token.is_parser_whitespace()
+        || token.is_comment()
+        || (token.is_start_tag() && token.tag_name().is_one_of(HTML::TagNames::basefont, HTML::TagNames::bgsound, HTML::TagNames::link, HTML::TagNames::meta, HTML::TagNames::noframes, HTML::TagNames::style))) {
+        // Process the token using the rules for the "in head" insertion mode.
         process_using_the_rules_for(InsertionMode::InHead, token);
         return;
     }
 
+    // -> An end tag whose tag name is "br"
     if (token.is_end_tag() && token.tag_name() == HTML::TagNames::br) {
+        // Act as described in the "anything else" entry below.
         goto AnythingElse;
     }
 
-    if (token.is_start_tag() && token.tag_name().is_one_of(HTML::TagNames::head, HTML::TagNames::noscript)) {
+    // -> A start tag whose tag name is one of: "head", "noscript"
+    // -> Any other end tag
+    if ((token.is_start_tag() && token.tag_name().is_one_of(HTML::TagNames::head, HTML::TagNames::noscript))
+        || token.is_end_tag()) {
+        // Parse error. Ignore the token.
         log_parse_error();
         return;
     }
 
+    // -> Anything else
 AnythingElse:
+    // Parse error.
     log_parse_error();
+
+    // Pop the current node (which will be a noscript element) from the stack of open elements; the new current node will be a head element.
     (void)m_stack_of_open_elements.pop();
+
+    // Switch the insertion mode to "in head".
     m_insertion_mode = InsertionMode::InHead;
+
+    // Reprocess the token.
     process_using_the_rules_for(m_insertion_mode, token);
 }
 
@@ -1235,20 +1286,20 @@ AnythingElse:
 
 void HTMLParser::generate_implied_end_tags(FlyString const& exception)
 {
-    while (current_node().local_name() != exception && current_node().local_name().is_one_of(HTML::TagNames::dd, HTML::TagNames::dt, HTML::TagNames::li, HTML::TagNames::optgroup, HTML::TagNames::option, HTML::TagNames::p, HTML::TagNames::rb, HTML::TagNames::rp, HTML::TagNames::rt, HTML::TagNames::rtc))
+    while (current_node()->local_name() != exception && current_node()->local_name().is_one_of(HTML::TagNames::dd, HTML::TagNames::dt, HTML::TagNames::li, HTML::TagNames::optgroup, HTML::TagNames::option, HTML::TagNames::p, HTML::TagNames::rb, HTML::TagNames::rp, HTML::TagNames::rt, HTML::TagNames::rtc))
         (void)m_stack_of_open_elements.pop();
 }
 
 void HTMLParser::generate_all_implied_end_tags_thoroughly()
 {
-    while (current_node().local_name().is_one_of(HTML::TagNames::caption, HTML::TagNames::colgroup, HTML::TagNames::dd, HTML::TagNames::dt, HTML::TagNames::li, HTML::TagNames::optgroup, HTML::TagNames::option, HTML::TagNames::p, HTML::TagNames::rb, HTML::TagNames::rp, HTML::TagNames::rt, HTML::TagNames::rtc, HTML::TagNames::tbody, HTML::TagNames::td, HTML::TagNames::tfoot, HTML::TagNames::th, HTML::TagNames::thead, HTML::TagNames::tr))
+    while (current_node()->local_name().is_one_of(HTML::TagNames::caption, HTML::TagNames::colgroup, HTML::TagNames::dd, HTML::TagNames::dt, HTML::TagNames::li, HTML::TagNames::optgroup, HTML::TagNames::option, HTML::TagNames::p, HTML::TagNames::rb, HTML::TagNames::rp, HTML::TagNames::rt, HTML::TagNames::rtc, HTML::TagNames::tbody, HTML::TagNames::td, HTML::TagNames::tfoot, HTML::TagNames::th, HTML::TagNames::thead, HTML::TagNames::tr))
         (void)m_stack_of_open_elements.pop();
 }
 
 void HTMLParser::close_a_p_element()
 {
     generate_implied_end_tags(HTML::TagNames::p);
-    if (current_node().local_name() != HTML::TagNames::p) {
+    if (current_node()->local_name() != HTML::TagNames::p) {
         log_parse_error();
     }
     m_stack_of_open_elements.pop_until_an_element_with_tag_name_has_been_popped(HTML::TagNames::p);
@@ -1382,7 +1433,7 @@ HTMLParser::AdoptionAgencyAlgorithmOutcome HTMLParser::run_the_adoption_agency_a
     // 2. If the current node is an HTML element whose tag name is subject,
     //    and the current node is not in the list of active formatting elements,
     //    then pop the current node off the stack of open elements, and return.
-    if (current_node().local_name() == subject && !m_list_of_active_formatting_elements.contains(current_node())) {
+    if (current_node()->local_name() == subject && !m_list_of_active_formatting_elements.contains(*current_node())) {
         (void)m_stack_of_open_elements.pop();
         return AdoptionAgencyAlgorithmOutcome::DoNothing;
     }
@@ -1427,7 +1478,7 @@ HTMLParser::AdoptionAgencyAlgorithmOutcome HTMLParser::run_the_adoption_agency_a
         }
 
         // 6. If formatting element is not the current node,
-        if (formatting_element != &current_node()) {
+        if (formatting_element != current_node()) {
             // this is a parse error. (But do not return.)
             log_parse_error();
         }
@@ -1440,7 +1491,7 @@ HTMLParser::AdoptionAgencyAlgorithmOutcome HTMLParser::run_the_adoption_agency_a
         if (!furthest_block) {
             // then the UA must first pop all the nodes from the bottom of the stack of open elements,
             // from the current node up to and including formatting element,
-            while (&current_node() != formatting_element)
+            while (current_node() != formatting_element)
                 (void)m_stack_of_open_elements.pop();
             (void)m_stack_of_open_elements.pop();
 
@@ -1654,6 +1705,7 @@ bool HTMLParser::is_special_tag(FlyString const& tag_name, Optional<FlyString> c
             MathML::TagNames::mi,
             MathML::TagNames::mo,
             MathML::TagNames::mn,
+            MathML::TagNames::ms,
             MathML::TagNames::mtext,
             MathML::TagNames::annotation_xml);
     }
@@ -1748,11 +1800,11 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         log_parse_error();
 
         // If the stack of open elements has only one node on it, if the second element on the stack of open elements is not a body element,
-        // or if there is a template element on the stack of open elements, then ignore the token. (fragment case)
+        // or if there is a template element on the stack of open elements, then ignore the token.
+        // (fragment case or there is a template element on the stack)
         if (m_stack_of_open_elements.elements().size() == 1
             || m_stack_of_open_elements.elements().at(1)->local_name() != HTML::TagNames::body
             || m_stack_of_open_elements.contains(HTML::TagNames::template_)) {
-            VERIFY(m_parsing_fragment);
             return;
         }
 
@@ -1774,10 +1826,11 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         // Parse error.
         log_parse_error();
 
-        // If the stack of open elements has only one node on it, or if the second element on the stack of open elements is not a body element, then ignore the token. (fragment case)
+        // If the stack of open elements has only one node on it, or if the second element on the stack of open elements is not a body element, then ignore the token.
+        // (fragment case or there is a template element on the stack)
         if (m_stack_of_open_elements.elements().size() == 1
             || m_stack_of_open_elements.elements().at(1)->local_name() != HTML::TagNames::body) {
-            VERIFY(m_parsing_fragment);
+            VERIFY(m_parsing_fragment || m_stack_of_open_elements.contains(HTML::TagNames::template_));
             return;
         }
 
@@ -1785,12 +1838,22 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         if (!m_frameset_ok)
             return;
 
-        // FIXME: Otherwise, run the following steps:
+        // Otherwise, run the following steps:
         // 1. Remove the second element on the stack of open elements from its parent node, if it has one.
+        m_stack_of_open_elements.elements().at(1)->remove(true);
+
         // 2. Pop all the nodes from the bottom of the stack of open elements, from the current node up to, but not including, the root html element.
+        while (m_stack_of_open_elements.elements().size() > 1) {
+            if (is<HTML::HTMLHtmlElement>(*m_stack_of_open_elements.elements().last()))
+                break;
+            (void)m_stack_of_open_elements.pop();
+        }
+
         // 3. Insert an HTML element for the token.
+        (void)insert_html_element(token);
+
         // 4. Switch the insertion mode to "in frameset".
-        TODO();
+        m_insertion_mode = InsertionMode::InFrameset;
     }
 
     // -> An end-of-file token
@@ -1884,7 +1947,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
             close_a_p_element();
 
         // If the current node is an HTML element whose tag name is one of "h1", "h2", "h3", "h4", "h5", or "h6", then this is a parse error; pop the current node off the stack of open elements.
-        if (current_node().local_name().is_one_of(HTML::TagNames::h1, HTML::TagNames::h2, HTML::TagNames::h3, HTML::TagNames::h4, HTML::TagNames::h5, HTML::TagNames::h6)) {
+        if (current_node()->local_name().is_one_of(HTML::TagNames::h1, HTML::TagNames::h2, HTML::TagNames::h3, HTML::TagNames::h4, HTML::TagNames::h5, HTML::TagNames::h6)) {
             log_parse_error();
             (void)m_stack_of_open_elements.pop();
         }
@@ -1909,7 +1972,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         auto next_token = m_tokenizer.next_token();
         if (next_token.has_value() && next_token.value().is_character() && next_token.value().code_point() == '\n') {
             // Ignore it.
-        } else {
+        } else if (next_token.has_value()) {
             process_using_the_rules_for(m_insertion_mode, next_token.value());
         }
 
@@ -1952,7 +2015,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
                 generate_implied_end_tags(HTML::TagNames::li);
 
                 // 2. If the current node is not an li element, then this is a parse error.
-                if (current_node().local_name() != HTML::TagNames::li) {
+                if (current_node()->local_name() != HTML::TagNames::li) {
                     log_parse_error();
                 }
 
@@ -1993,7 +2056,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
             if (node->local_name() == HTML::TagNames::dd) {
                 generate_implied_end_tags(HTML::TagNames::dd);
                 // 2. If the current node is not a dd element, then this is a parse error.
-                if (current_node().local_name() != HTML::TagNames::dd) {
+                if (current_node()->local_name() != HTML::TagNames::dd) {
                     log_parse_error();
                 }
 
@@ -2008,7 +2071,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
             if (node->local_name() == HTML::TagNames::dt) {
                 // 2. If the current node is not a dt element, then this is a parse error.
                 generate_implied_end_tags(HTML::TagNames::dt);
-                if (current_node().local_name() != HTML::TagNames::dt) {
+                if (current_node()->local_name() != HTML::TagNames::dt) {
                     log_parse_error();
                 }
                 // 3. Pop elements from the stack of open elements until a dt element has been popped from the stack.
@@ -2086,7 +2149,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         generate_implied_end_tags();
 
         // 2. If the current node is not an HTML element with the same tag name as that of the token, then this is a parse error.
-        if (current_node().local_name() != token.tag_name()) {
+        if (current_node()->local_name() != token.tag_name()) {
             log_parse_error();
         }
 
@@ -2115,7 +2178,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
             generate_implied_end_tags();
 
             // 5. If the current node is not node, then this is a parse error.
-            if (&current_node() != node.ptr()) {
+            if (current_node() != node) {
                 log_parse_error();
             }
 
@@ -2134,7 +2197,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
             generate_implied_end_tags();
 
             // 3. If the current node is not a form element, then this is a parse error.
-            if (current_node().local_name() != HTML::TagNames::form) {
+            if (current_node()->local_name() != HTML::TagNames::form) {
                 log_parse_error();
             }
 
@@ -2170,9 +2233,9 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         generate_implied_end_tags(HTML::TagNames::li);
 
         // 2. If the current node is not an li element, then this is a parse error.
-        if (current_node().local_name() != HTML::TagNames::li) {
+        if (current_node()->local_name() != HTML::TagNames::li) {
             log_parse_error();
-            dbgln("Expected <li> current node, but had <{}>", current_node().local_name());
+            dbgln("Expected <li> current node, but had <{}>", current_node()->local_name());
         }
 
         // 3. Pop elements from the stack of open elements until an li element has been popped from the stack.
@@ -2193,7 +2256,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         generate_implied_end_tags(token.tag_name());
 
         // 2. If the current node is not an HTML element with the same tag name as that of the token, then this is a parse error.
-        if (current_node().local_name() != token.tag_name()) {
+        if (current_node()->local_name() != token.tag_name()) {
             log_parse_error();
         }
 
@@ -2220,7 +2283,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         generate_implied_end_tags();
 
         // 2. If the current node is not an HTML element with the same tag name as that of the token, then this is a parse error.
-        if (current_node().local_name() != token.tag_name()) {
+        if (current_node()->local_name() != token.tag_name()) {
             log_parse_error();
         }
 
@@ -2323,7 +2386,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         generate_implied_end_tags();
 
         // 2. If the current node is not an HTML element with the same tag name as that of the token, then this is a parse error.
-        if (current_node().local_name() != token.tag_name()) {
+        if (current_node()->local_name() != token.tag_name()) {
             log_parse_error();
         }
 
@@ -2468,7 +2531,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         // FIXME: This step is not in the spec.
         if (next_token.has_value() && next_token.value().is_character() && next_token.value().code_point() == '\n') {
             // Ignore it.
-        } else {
+        } else if (next_token.has_value()) {
             process_using_the_rules_for(m_insertion_mode, next_token.value());
         }
         return;
@@ -2540,7 +2603,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
     // -> A start tag whose tag name is one of: "optgroup", "option"
     if (token.is_start_tag() && token.tag_name().is_one_of(HTML::TagNames::optgroup, HTML::TagNames::option)) {
         // If the current node is an option element, then pop the current node off the stack of open elements.
-        if (current_node().local_name() == HTML::TagNames::option)
+        if (current_node()->local_name() == HTML::TagNames::option)
             (void)m_stack_of_open_elements.pop();
 
         // Reconstruct the active formatting elements, if any.
@@ -2556,7 +2619,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         // If the stack of open elements has a ruby element in scope, then generate implied end tags. If the current node is not now a ruby element, this is a parse error.
         if (m_stack_of_open_elements.has_in_scope(HTML::TagNames::ruby))
             generate_implied_end_tags();
-        if (current_node().local_name() != HTML::TagNames::ruby)
+        if (current_node()->local_name() != HTML::TagNames::ruby)
             log_parse_error();
 
         // Insert an HTML element for the token.
@@ -2569,7 +2632,7 @@ void HTMLParser::handle_in_body(HTMLToken& token)
         // If the stack of open elements has a ruby element in scope, then generate implied end tags, except for rtc elements. If the current node is not now a rtc element or a ruby element, this is a parse error.
         if (m_stack_of_open_elements.has_in_scope(HTML::TagNames::ruby))
             generate_implied_end_tags(HTML::TagNames::rtc);
-        if (current_node().local_name() != HTML::TagNames::rtc || current_node().local_name() != HTML::TagNames::ruby)
+        if (current_node()->local_name() != HTML::TagNames::rtc || current_node()->local_name() != HTML::TagNames::ruby)
             log_parse_error();
 
         // Insert an HTML element for the token.
@@ -2653,12 +2716,12 @@ void HTMLParser::handle_in_body(HTMLToken& token)
                 generate_implied_end_tags(token.tag_name());
 
                 // 2. If node is not the current node, then this is a parse error.
-                if (node.ptr() != &current_node()) {
+                if (node != current_node()) {
                     log_parse_error();
                 }
 
                 // 3. Pop all the nodes from the current node up to node, including node, then stop these steps.
-                while (&current_node() != node.ptr()) {
+                while (current_node() != node) {
                     (void)m_stack_of_open_elements.pop();
                 }
                 (void)m_stack_of_open_elements.pop();
@@ -2720,7 +2783,9 @@ void HTMLParser::adjust_svg_tag_names(HTMLToken& token)
         { "feoffset"_fly_string, "feOffset"_fly_string },
         { "fepointlight"_fly_string, "fePointLight"_fly_string },
         { "fespecularlighting"_fly_string, "feSpecularLighting"_fly_string },
-        { "fespotlight"_fly_string, "feSpotlight"_fly_string },
+        { "fespotlight"_fly_string, "feSpotLight"_fly_string },
+        { "fetile"_fly_string, "feTile"_fly_string },
+        { "feturbulence"_fly_string, "feTurbulence"_fly_string },
         { "foreignobject"_fly_string, "foreignObject"_fly_string },
         { "glyphref"_fly_string, "glyphRef"_fly_string },
         { "lineargradient"_fly_string, "linearGradient"_fly_string },
@@ -2855,8 +2920,8 @@ void HTMLParser::handle_text(HTMLToken& token)
     }
     if (token.is_end_of_file()) {
         log_parse_error();
-        if (current_node().local_name() == HTML::TagNames::script)
-            verify_cast<HTMLScriptElement>(current_node()).set_already_started(Badge<HTMLParser> {}, true);
+        if (current_node()->local_name() == HTML::TagNames::script)
+            verify_cast<HTMLScriptElement>(*current_node()).set_already_started(Badge<HTMLParser> {}, true);
         (void)m_stack_of_open_elements.pop();
         m_insertion_mode = m_original_insertion_mode;
         process_using_the_rules_for(m_insertion_mode, token);
@@ -2877,7 +2942,7 @@ void HTMLParser::handle_text(HTMLToken& token)
             perform_a_microtask_checkpoint();
 
         // Let script be the current node (which will be a script element).
-        JS::NonnullGCPtr<HTMLScriptElement> script = verify_cast<HTMLScriptElement>(current_node());
+        JS::NonnullGCPtr<HTMLScriptElement> script = verify_cast<HTMLScriptElement>(*current_node());
 
         // Pop the current node off the stack of open elements.
         (void)m_stack_of_open_elements.pop();
@@ -2939,9 +3004,9 @@ void HTMLParser::handle_text(HTMLToken& token)
                     if (m_document->has_a_style_sheet_that_is_blocking_scripts() || the_script->is_ready_to_be_parser_executed() == false) {
                         // spin the event loop until the parser's Document has no style sheet that is blocking scripts
                         // and the script's ready to be parser-executed becomes true.
-                        main_thread_event_loop().spin_until([&] {
+                        main_thread_event_loop().spin_until(JS::create_heap_function(heap(), [&] {
                             return !m_document->has_a_style_sheet_that_is_blocking_scripts() && the_script->is_ready_to_be_parser_executed();
-                        });
+                        }));
                     }
 
                     // 6. If this parser has been aborted in the meantime, return.
@@ -2989,28 +3054,28 @@ void HTMLParser::handle_text(HTMLToken& token)
 
 void HTMLParser::clear_the_stack_back_to_a_table_context()
 {
-    while (!current_node().local_name().is_one_of(HTML::TagNames::table, HTML::TagNames::template_, HTML::TagNames::html))
+    while (!current_node()->local_name().is_one_of(HTML::TagNames::table, HTML::TagNames::template_, HTML::TagNames::html))
         (void)m_stack_of_open_elements.pop();
 
-    if (current_node().local_name() == HTML::TagNames::html)
+    if (current_node()->local_name() == HTML::TagNames::html)
         VERIFY(m_parsing_fragment);
 }
 
 void HTMLParser::clear_the_stack_back_to_a_table_row_context()
 {
-    while (!current_node().local_name().is_one_of(HTML::TagNames::tr, HTML::TagNames::template_, HTML::TagNames::html))
+    while (!current_node()->local_name().is_one_of(HTML::TagNames::tr, HTML::TagNames::template_, HTML::TagNames::html))
         (void)m_stack_of_open_elements.pop();
 
-    if (current_node().local_name() == HTML::TagNames::html)
+    if (current_node()->local_name() == HTML::TagNames::html)
         VERIFY(m_parsing_fragment);
 }
 
 void HTMLParser::clear_the_stack_back_to_a_table_body_context()
 {
-    while (!current_node().local_name().is_one_of(HTML::TagNames::tbody, HTML::TagNames::tfoot, HTML::TagNames::thead, HTML::TagNames::template_, HTML::TagNames::html))
+    while (!current_node()->local_name().is_one_of(HTML::TagNames::tbody, HTML::TagNames::tfoot, HTML::TagNames::thead, HTML::TagNames::template_, HTML::TagNames::html))
         (void)m_stack_of_open_elements.pop();
 
-    if (current_node().local_name() == HTML::TagNames::html)
+    if (current_node()->local_name() == HTML::TagNames::html)
         VERIFY(m_parsing_fragment);
 }
 
@@ -3120,10 +3185,10 @@ void HTMLParser::handle_in_row(HTMLToken& token)
 void HTMLParser::close_the_cell()
 {
     generate_implied_end_tags();
-    if (!current_node().local_name().is_one_of(HTML::TagNames::td, HTML::TagNames::th)) {
+    if (!current_node()->local_name().is_one_of(HTML::TagNames::td, HTML::TagNames::th)) {
         log_parse_error();
     }
-    while (!current_node().local_name().is_one_of(HTML::TagNames::td, HTML::TagNames::th))
+    while (!current_node()->local_name().is_one_of(HTML::TagNames::td, HTML::TagNames::th))
         (void)m_stack_of_open_elements.pop();
     (void)m_stack_of_open_elements.pop();
     m_list_of_active_formatting_elements.clear_up_to_the_last_marker();
@@ -3139,7 +3204,7 @@ void HTMLParser::handle_in_cell(HTMLToken& token)
         }
         generate_implied_end_tags();
 
-        if (current_node().local_name() != token.tag_name()) {
+        if (current_node()->local_name() != token.tag_name()) {
             log_parse_error();
         }
 
@@ -3279,7 +3344,7 @@ void HTMLParser::handle_in_table_body(HTMLToken& token)
 void HTMLParser::handle_in_table(HTMLToken& token)
 {
     // A character token, if the current node is table, tbody, template, tfoot, thead, or tr element
-    if (token.is_character() && current_node().local_name().is_one_of(HTML::TagNames::table, HTML::TagNames::tbody, HTML::TagNames::tfoot, HTML::TagNames::thead, HTML::TagNames::tr)) {
+    if (token.is_character() && current_node()->local_name().is_one_of(HTML::TagNames::table, HTML::TagNames::tbody, HTML::TagNames::tfoot, HTML::TagNames::thead, HTML::TagNames::tr)) {
         // Let the pending table character tokens be an empty list of tokens.
         m_pending_table_character_tokens.clear();
 
@@ -3539,7 +3604,7 @@ void HTMLParser::handle_in_select(HTMLToken& token)
     }
 
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::option) {
-        if (current_node().local_name() == HTML::TagNames::option) {
+        if (current_node()->local_name() == HTML::TagNames::option) {
             (void)m_stack_of_open_elements.pop();
         }
         (void)insert_html_element(token);
@@ -3547,10 +3612,10 @@ void HTMLParser::handle_in_select(HTMLToken& token)
     }
 
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::optgroup) {
-        if (current_node().local_name() == HTML::TagNames::option) {
+        if (current_node()->local_name() == HTML::TagNames::option) {
             (void)m_stack_of_open_elements.pop();
         }
-        if (current_node().local_name() == HTML::TagNames::optgroup) {
+        if (current_node()->local_name() == HTML::TagNames::optgroup) {
             (void)m_stack_of_open_elements.pop();
         }
         (void)insert_html_element(token);
@@ -3560,11 +3625,11 @@ void HTMLParser::handle_in_select(HTMLToken& token)
     // -> A start tag whose tag name is "hr"
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::hr) {
         // If the current node is an option element, pop that node from the stack of open elements.
-        if (current_node().local_name() == HTML::TagNames::option) {
+        if (current_node()->local_name() == HTML::TagNames::option) {
             (void)m_stack_of_open_elements.pop();
         }
         // If the current node is an optgroup element, pop that node from the stack of open elements.
-        if (current_node().local_name() == HTML::TagNames::optgroup) {
+        if (current_node()->local_name() == HTML::TagNames::optgroup) {
             (void)m_stack_of_open_elements.pop();
         }
         // Insert an HTML element for the token. Immediately pop the current node off the stack of open elements.
@@ -3576,10 +3641,10 @@ void HTMLParser::handle_in_select(HTMLToken& token)
     }
 
     if (token.is_end_tag() && token.tag_name() == HTML::TagNames::optgroup) {
-        if (current_node().local_name() == HTML::TagNames::option && node_before_current_node().local_name() == HTML::TagNames::optgroup)
+        if (current_node()->local_name() == HTML::TagNames::option && node_before_current_node()->local_name() == HTML::TagNames::optgroup)
             (void)m_stack_of_open_elements.pop();
 
-        if (current_node().local_name() == HTML::TagNames::optgroup) {
+        if (current_node()->local_name() == HTML::TagNames::optgroup) {
             (void)m_stack_of_open_elements.pop();
         } else {
             log_parse_error();
@@ -3589,7 +3654,7 @@ void HTMLParser::handle_in_select(HTMLToken& token)
     }
 
     if (token.is_end_tag() && token.tag_name() == HTML::TagNames::option) {
-        if (current_node().local_name() == HTML::TagNames::option) {
+        if (current_node()->local_name() == HTML::TagNames::option) {
             (void)m_stack_of_open_elements.pop();
         } else {
             log_parse_error();
@@ -3665,7 +3730,7 @@ void HTMLParser::handle_in_caption(HTMLToken& token)
 
         generate_implied_end_tags();
 
-        if (current_node().local_name() != HTML::TagNames::caption)
+        if (current_node()->local_name() != HTML::TagNames::caption)
             log_parse_error();
 
         m_stack_of_open_elements.pop_until_an_element_with_tag_name_has_been_popped(HTML::TagNames::caption);
@@ -3685,7 +3750,7 @@ void HTMLParser::handle_in_caption(HTMLToken& token)
 
         generate_implied_end_tags();
 
-        if (current_node().local_name() != HTML::TagNames::caption)
+        if (current_node()->local_name() != HTML::TagNames::caption)
             log_parse_error();
 
         m_stack_of_open_elements.pop_until_an_element_with_tag_name_has_been_popped(HTML::TagNames::caption);
@@ -3734,7 +3799,7 @@ void HTMLParser::handle_in_column_group(HTMLToken& token)
     }
 
     if (token.is_end_tag() && token.tag_name() == HTML::TagNames::colgroup) {
-        if (current_node().local_name() != HTML::TagNames::colgroup) {
+        if (current_node()->local_name() != HTML::TagNames::colgroup) {
             log_parse_error();
             return;
         }
@@ -3759,7 +3824,7 @@ void HTMLParser::handle_in_column_group(HTMLToken& token)
         return;
     }
 
-    if (current_node().local_name() != HTML::TagNames::colgroup) {
+    if (current_node()->local_name() != HTML::TagNames::colgroup) {
         log_parse_error();
         return;
     }
@@ -3847,63 +3912,99 @@ void HTMLParser::handle_in_template(HTMLToken& token)
     }
 }
 
+// https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inframeset
 void HTMLParser::handle_in_frameset(HTMLToken& token)
 {
+    // -> A character token that is one of U+0009 CHARACTER TABULATION, U+000A LINE FEED (LF),
+    //    U+000C FORM FEED (FF), U+000D CARRIAGE RETURN (CR), or U+0020 SPACE
     if (token.is_character() && token.is_parser_whitespace()) {
+        // Insert the character.
         insert_character(token.code_point());
         return;
     }
 
+    // -> A comment token
     if (token.is_comment()) {
+        // Insert a comment.
         insert_comment(token);
         return;
     }
 
+    // -> A DOCTYPE token
     if (token.is_doctype()) {
+        // Parse error. Ignore the token.
         log_parse_error();
         return;
     }
 
+    // -> A start tag whose tag name is "html"
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::html) {
+        // Process the token using the rules for the "in body" insertion mode.
         process_using_the_rules_for(InsertionMode::InBody, token);
         return;
     }
 
+    // -> A start tag whose tag name is "frameset"
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::frameset) {
+        // Insert an HTML element for the token.
         (void)insert_html_element(token);
         return;
     }
 
+    // -> An end tag whose tag name is "frameset"
     if (token.is_end_tag() && token.tag_name() == HTML::TagNames::frameset) {
-        // FIXME: If the current node is the root html element, then this is a parse error; ignore the token. (fragment case)
+        // If the current node is the root html element, then this is a parse error; ignore the token. (fragment case)
+        if (current_node()->is_document_element()) {
+            log_parse_error();
+            return;
+        }
 
+        // Otherwise, pop the current node from the stack of open elements.
         (void)m_stack_of_open_elements.pop();
 
-        if (!m_parsing_fragment && current_node().local_name() != HTML::TagNames::frameset) {
+        // If the parser was not created as part of the HTML fragment parsing algorithm (fragment case),
+        // and the current node is no longer a frameset element, then switch the insertion mode to "after frameset".
+        if (!m_parsing_fragment && current_node()->local_name() != HTML::TagNames::frameset) {
             m_insertion_mode = InsertionMode::AfterFrameset;
         }
         return;
     }
 
+    // -> A start tag whose tag name is "frame"
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::frame) {
+        // Insert an HTML element for the token.
         (void)insert_html_element(token);
+
+        // Immediately pop the current node off the stack of open elements.
         (void)m_stack_of_open_elements.pop();
+
+        // Acknowledge the token's self-closing flag, if it is set.
         token.acknowledge_self_closing_flag_if_set();
         return;
     }
 
+    // -> A start tag whose tag name is "noframes"
     if (token.is_start_tag() && token.tag_name() == HTML::TagNames::noframes) {
+        // Process the token using the rules for the "in head" insertion mode.
         process_using_the_rules_for(InsertionMode::InHead, token);
         return;
     }
 
+    // -> An end-of-file token
     if (token.is_end_of_file()) {
-        // FIXME: If the current node is not the root html element, then this is a parse error.
+        // If the current node is not the root html element, then this is a parse error.
+        if (!current_node()->is_document_element()) {
+            log_parse_error();
+        }
 
+        // Stop parsing.
         stop_parsing();
         return;
     }
 
+    // -> Anything else
+
+    // Parse error. Ignore the token.
     log_parse_error();
 }
 
@@ -4021,9 +4122,9 @@ void HTMLParser::process_using_the_rules_for_foreign_content(HTMLToken& token)
         log_parse_error();
 
         // While the current node is not a MathML text integration point, an HTML integration point, or an element in the HTML namespace, pop elements from the stack of open elements.
-        while (!is_mathml_text_integration_point(current_node())
-            && !is_html_integration_point(current_node())
-            && current_node().namespace_uri() != Namespace::HTML) {
+        while (!is_mathml_text_integration_point(*current_node())
+            && !is_html_integration_point(*current_node())
+            && current_node()->namespace_uri() != Namespace::HTML) {
             (void)m_stack_of_open_elements.pop();
         }
 
@@ -4035,13 +4136,13 @@ void HTMLParser::process_using_the_rules_for_foreign_content(HTMLToken& token)
     // Any other start tag
     if (token.is_start_tag()) {
         // If the adjusted current node is an element in the MathML namespace, adjust MathML attributes for the token. (This fixes the case of MathML attributes that are not all lowercase.)
-        if (adjusted_current_node().namespace_uri() == Namespace::MathML) {
+        if (adjusted_current_node()->namespace_uri() == Namespace::MathML) {
             adjust_mathml_attributes(token);
         }
         // If the adjusted current node is an element in the SVG namespace, and the token's tag name is one of the ones in the first column of the
         // following table, change the tag name to the name given in the corresponding cell in the second column. (This fixes the case of SVG
         // elements that are not all lowercase.)
-        else if (adjusted_current_node().namespace_uri() == Namespace::SVG) {
+        else if (adjusted_current_node()->namespace_uri() == Namespace::SVG) {
             adjust_svg_tag_names(token);
             // If the adjusted current node is an element in the SVG namespace, adjust SVG attributes for the token. (This fixes the case of SVG attributes that are not all lowercase.)
             adjust_svg_attributes(token);
@@ -4051,14 +4152,14 @@ void HTMLParser::process_using_the_rules_for_foreign_content(HTMLToken& token)
         adjust_foreign_attributes(token);
 
         // Insert a foreign element for the token, with adjusted current node's namespace and false.
-        (void)insert_foreign_element(token, adjusted_current_node().namespace_uri(), OnlyAddToElementStack::No);
+        (void)insert_foreign_element(token, adjusted_current_node()->namespace_uri(), OnlyAddToElementStack::No);
 
         // If the token has its self-closing flag set, then run the appropriate steps from the following list:
         if (token.is_self_closing()) {
 
             // -> If the token's tag name is "script", and the new current node is in the SVG namespace
-            if (token.tag_name() == SVG::TagNames::script && current_node().namespace_uri() == Namespace::SVG) {
-                auto& script_element = verify_cast<SVG::SVGScriptElement>(current_node());
+            if (token.tag_name() == SVG::TagNames::script && current_node()->namespace_uri() == Namespace::SVG) {
+                auto& script_element = verify_cast<SVG::SVGScriptElement>(*current_node());
                 script_element.set_source_line_number({}, token.start_position().line + 1); // FIXME: This +1 is incorrect for script tags whose script does not start on a new line
 
                 // Acknowledge the token's self-closing flag, and then act as described in the steps for a "script" end tag below.
@@ -4077,7 +4178,7 @@ void HTMLParser::process_using_the_rules_for_foreign_content(HTMLToken& token)
     }
 
     // -> An end tag whose tag name is "script", if the current node is an SVG script element
-    if (token.is_end_tag() && current_node().namespace_uri() == Namespace::SVG && current_node().tag_name() == SVG::TagNames::script) {
+    if (token.is_end_tag() && current_node()->namespace_uri() == Namespace::SVG && current_node()->tag_name() == SVG::TagNames::script) {
     ScriptEndTag:
         // Pop the current node off the stack of open elements.
         auto& script_element = verify_cast<SVG::SVGScriptElement>(*m_stack_of_open_elements.pop());
@@ -4127,7 +4228,7 @@ void HTMLParser::process_using_the_rules_for_foreign_content(HTMLToken& token)
             // 4. If node's tag name, converted to ASCII lowercase, is the same as the tag name of the token, pop elements from the stack
             // of open elements until node has been popped from the stack, and then return.
             if (node->tag_name().equals_ignoring_ascii_case(token.tag_name())) {
-                while (&current_node() != node.ptr())
+                while (current_node() != node)
                     (void)m_stack_of_open_elements.pop();
                 (void)m_stack_of_open_elements.pop();
                 return;
@@ -4272,6 +4373,10 @@ Vector<JS::Handle<DOM::Node>> HTMLParser::parse_html_fragment(DOM::Element& cont
     auto temp_document = DOM::Document::create_for_fragment_parsing(context_element.realm());
     temp_document->set_document_type(DOM::Document::Type::HTML);
 
+    // AD-HOC: We set the about base URL of the document to the same as the context element's document.
+    //         This is required for Document::parse_url() to work inside iframe srcdoc documents.
+    temp_document->set_about_base_url(context_element.document().about_base_url());
+
     // 2. If the node document of the context element is in quirks mode, then let the Document be in quirks mode.
     //    Otherwise, the node document of the context element is in limited-quirks mode, then let the Document be in limited-quirks mode.
     //    Otherwise, leave the Document in no-quirks mode.
@@ -4368,11 +4473,11 @@ JS::NonnullGCPtr<HTMLParser> HTMLParser::create_for_scripting(DOM::Document& doc
     return document.heap().allocate_without_realm<HTMLParser>(document);
 }
 
-JS::NonnullGCPtr<HTMLParser> HTMLParser::create_with_uncertain_encoding(DOM::Document& document, ByteBuffer const& input)
+JS::NonnullGCPtr<HTMLParser> HTMLParser::create_with_uncertain_encoding(DOM::Document& document, ByteBuffer const& input, Optional<MimeSniff::MimeType> maybe_mime_type)
 {
     if (document.has_encoding())
         return document.heap().allocate_without_realm<HTMLParser>(document, input, document.encoding().value().to_byte_string());
-    auto encoding = run_encoding_sniffing_algorithm(document, input);
+    auto encoding = run_encoding_sniffing_algorithm(document, input, maybe_mime_type);
     dbgln_if(HTML_PARSER_DEBUG, "The encoding sniffing algorithm returned encoding '{}'", encoding);
     return document.heap().allocate_without_realm<HTMLParser>(document, input, encoding);
 }
@@ -4648,7 +4753,7 @@ String HTMLParser::serialize_html_fragment(DOM::Node const& node, SerializableSh
 }
 
 // https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#current-dimension-value
-static RefPtr<CSS::StyleValue> parse_current_dimension_value(float value, Utf8View input, Utf8View::Iterator position)
+static RefPtr<CSS::CSSStyleValue> parse_current_dimension_value(float value, Utf8View input, Utf8View::Iterator position)
 {
     // 1. If position is past the end of input, then return value as a length.
     if (position == input.end())
@@ -4663,7 +4768,7 @@ static RefPtr<CSS::StyleValue> parse_current_dimension_value(float value, Utf8Vi
 }
 
 // https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#rules-for-parsing-dimension-values
-RefPtr<CSS::StyleValue> parse_dimension_value(StringView string)
+RefPtr<CSS::CSSStyleValue> parse_dimension_value(StringView string)
 {
     // 1. Let input be the string being parsed.
     auto input = Utf8View(string);
@@ -4740,7 +4845,7 @@ RefPtr<CSS::StyleValue> parse_dimension_value(StringView string)
 }
 
 // https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#rules-for-parsing-non-zero-dimension-values
-RefPtr<CSS::StyleValue> parse_nonzero_dimension_value(StringView string)
+RefPtr<CSS::CSSStyleValue> parse_nonzero_dimension_value(StringView string)
 {
     // 1. Let input be the string being parsed.
     // 2. Let value be the result of parsing input using the rules for parsing dimension values.
@@ -4762,23 +4867,22 @@ RefPtr<CSS::StyleValue> parse_nonzero_dimension_value(StringView string)
 }
 
 // https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#rules-for-parsing-a-legacy-colour-value
-Optional<Color> parse_legacy_color_value(StringView string)
+Optional<Color> parse_legacy_color_value(StringView string_view)
 {
-    // 1. Let input be the string being parsed
-    ByteString input = MUST(ByteString::from_utf8(string));
-
-    // 2. If input is the empty string, then return an error.
-    if (input.is_empty())
+    // 1. If input is the empty string, then return failure.
+    if (string_view.is_empty())
         return {};
 
-    // 3. Strip leading and trailing ASCII whitespace from input.
+    ByteString input = string_view;
+
+    // 2. Strip leading and trailing ASCII whitespace from input.
     input = input.trim(Infra::ASCII_WHITESPACE);
 
-    // 4. If input is an ASCII case-insensitive match for the string "transparent", then return an error.
+    // 3. If input is an ASCII case-insensitive match for "transparent", then return failure.
     if (Infra::is_ascii_case_insensitive_match(input, "transparent"sv))
         return {};
 
-    // 5. If input is an ASCII case-insensitive match for one of the named colors, then return the simple color corresponding to that keyword. [CSSCOLOR]
+    // 4. If input is an ASCII case-insensitive match for one of the named colors, then return the CSS color corresponding to that keyword. [CSSCOLOR]
     if (auto const color = Color::from_named_css_color_string(input); color.has_value())
         return color;
 
@@ -4790,9 +4894,9 @@ Optional<Color> parse_legacy_color_value(StringView string)
         return nibble - 'A' + 10;
     };
 
-    // 6. If input's code point length is four, and the first character in input is U+0023 (#), and the last three characters of input are all ASCII hex digits, then:
+    // 5. If input's code point length is four, and the first character in input is U+0023 (#), and the last three characters of input are all ASCII hex digits, then:
     if (input.length() == 4 && input[0] == '#' && is_ascii_hex_digit(input[1]) && is_ascii_hex_digit(input[2]) && is_ascii_hex_digit(input[3])) {
-        // 1. Let result be a simple color.
+        // 1. Let result be a CSS color.
         Color result;
         result.set_alpha(0xFF);
 
@@ -4809,7 +4913,7 @@ Optional<Color> parse_legacy_color_value(StringView string)
         return result;
     }
 
-    // 7. Replace any code points greater than U+FFFF in input (i.e., any characters that are not in the basic multilingual plane) with the two-character string "00".
+    // 6. Replace any code points greater than U+FFFF in input (i.e., any characters that are not in the basic multilingual plane) with "00".
     auto replace_non_basic_multilingual_code_points = [](StringView string) -> ByteString {
         StringBuilder builder;
         for (auto code_point : Utf8View { string }) {
@@ -4822,15 +4926,15 @@ Optional<Color> parse_legacy_color_value(StringView string)
     };
     input = replace_non_basic_multilingual_code_points(input);
 
-    // 8. If input's code point length is greater than 128, truncate input, leaving only the first 128 characters.
+    // 7. If input's code point length is greater than 128, truncate input, leaving only the first 128 characters.
     if (input.length() > 128)
         input = input.substring(0, 128);
 
-    // 9. If the first character in input is a U+0023 NUMBER SIGN character (#), remove it.
+    // 8. If the first character in input is U+0023 (#), then remove it.
     if (input[0] == '#')
         input = input.substring(1);
 
-    // 10. Replace any character in input that is not an ASCII hex digit with the character U+0030 DIGIT ZERO (0).
+    // 9. Replace any character in input that is not an ASCII hex digit with U+0030 (0).
     auto replace_non_ascii_hex = [](StringView string) -> ByteString {
         StringBuilder builder;
         for (auto code_point : Utf8View { string }) {
@@ -4843,20 +4947,20 @@ Optional<Color> parse_legacy_color_value(StringView string)
     };
     input = replace_non_ascii_hex(input);
 
-    // 11. While input's code point length is zero or not a multiple of three, append a U+0030 DIGIT ZERO (0) character to input.
+    // 10. While input's code point length is zero or not a multiple of three, append U+0030 (0) to input.
     StringBuilder builder;
     builder.append(input);
     while (builder.length() == 0 || (builder.length() % 3 != 0))
         builder.append_code_point('0');
     input = builder.to_byte_string();
 
-    // 12. Split input into three strings of equal code point length, to obtain three components. Let length be the code point length that all of those components have (one third the code point length of input).
+    // 11. Split input into three strings of equal code point length, to obtain three components. Let length be the code point length that all of those components have (one third the code point length of input).
     auto length = input.length() / 3;
     auto first_component = input.substring_view(0, length);
     auto second_component = input.substring_view(length, length);
     auto third_component = input.substring_view(length * 2, length);
 
-    // 13. If length is greater than 8, then remove the leading length-8 characters in each component, and let length be 8.
+    // 12. If length is greater than 8, then remove the leading length-8 characters in each component, and let length be 8.
     if (length > 8) {
         first_component = first_component.substring_view(length - 8);
         second_component = second_component.substring_view(length - 8);
@@ -4864,7 +4968,7 @@ Optional<Color> parse_legacy_color_value(StringView string)
         length = 8;
     }
 
-    // 14. While length is greater than two and the first character in each component is a U+0030 DIGIT ZERO (0) character, remove that character and reduce length by one.
+    // 13. While length is greater than two and the first character in each component is U+0030 (0), remove that character and reduce length by one.
     while (length > 2 && first_component[0] == '0' && second_component[0] == '0' && third_component[0] == '0') {
         --length;
         first_component = first_component.substring_view(1);
@@ -4872,7 +4976,7 @@ Optional<Color> parse_legacy_color_value(StringView string)
         third_component = third_component.substring_view(1);
     }
 
-    // 15. If length is still greater than two, truncate each component, leaving only the first two characters in each.
+    // 14. If length is still greater than two, truncate each component, leaving only the first two characters in each.
     if (length > 2) {
         first_component = first_component.substring_view(0, 2);
         second_component = second_component.substring_view(0, 2);
@@ -4888,20 +4992,20 @@ Optional<Color> parse_legacy_color_value(StringView string)
         return nib1 << 4 | nib2;
     };
 
-    // 16. Let result be a simple color.
+    // 15. Let result be a CSS color.
     Color result;
     result.set_alpha(0xFF);
 
-    // 17. Interpret the first component as a hexadecimal number; let the red component of result be the resulting number.
+    // 16. Interpret the first component as a hexadecimal number; let the red component of result be the resulting number.
     result.set_red(to_hex(first_component));
 
-    // 18. Interpret the second component as a hexadecimal number; let the green component of result be the resulting number.
+    // 17. Interpret the second component as a hexadecimal number; let the green component of result be the resulting number.
     result.set_green(to_hex(second_component));
 
-    // 19. Interpret the third component as a hexadecimal number; let the blue component of result be the resulting number.
+    // 18. Interpret the third component as a hexadecimal number; let the blue component of result be the resulting number.
     result.set_blue(to_hex(third_component));
 
-    // 20. Return result.
+    // 19. Return result.
     return result;
 }
 

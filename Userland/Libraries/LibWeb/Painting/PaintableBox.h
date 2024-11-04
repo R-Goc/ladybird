@@ -1,11 +1,15 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
+ * Copyright (c) 2024, Aliaksandr Kalenik <kalenik.aliaksandr@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
 
+#include <LibWeb/CSS/StyleValues/GridTrackSizeListStyleValue.h>
+#include <LibWeb/Forward.h>
+#include <LibWeb/Layout/Box.h>
 #include <LibWeb/Painting/BackgroundPainting.h>
 #include <LibWeb/Painting/BorderPainting.h>
 #include <LibWeb/Painting/BorderRadiusCornerClipper.h>
@@ -23,6 +27,7 @@ class PaintableBox : public Paintable
 
 public:
     static JS::NonnullGCPtr<PaintableBox> create(Layout::Box const&);
+    static JS::NonnullGCPtr<PaintableBox> create(Layout::InlineNode const&);
     virtual ~PaintableBox();
 
     virtual void before_paint(PaintContext&, PaintPhase) const override;
@@ -31,13 +36,13 @@ public:
     virtual void paint(PaintContext&, PaintPhase) const override;
 
     virtual Optional<CSSPixelRect> get_masking_area() const;
-    virtual Optional<Gfx::Bitmap::MaskKind> get_mask_type() const;
-    virtual RefPtr<Gfx::Bitmap> calculate_mask(PaintContext&, CSSPixelRect const&) const;
+    virtual Optional<Gfx::Bitmap::MaskKind> get_mask_type() const { return {}; }
+    virtual RefPtr<Gfx::Bitmap> calculate_mask(PaintContext&, CSSPixelRect const&) const { return {}; }
 
-    Layout::Box& layout_box() { return static_cast<Layout::Box&>(Paintable::layout_node()); }
-    Layout::Box const& layout_box() const { return static_cast<Layout::Box const&>(Paintable::layout_node()); }
+    Layout::NodeWithStyleAndBoxModelMetrics& layout_node_with_style_and_box_metrics() { return static_cast<Layout::NodeWithStyleAndBoxModelMetrics&>(Paintable::layout_node()); }
+    Layout::NodeWithStyleAndBoxModelMetrics const& layout_node_with_style_and_box_metrics() const { return static_cast<Layout::NodeWithStyleAndBoxModelMetrics const&>(Paintable::layout_node()); }
 
-    auto const& box_model() const { return layout_box().box_model(); }
+    auto const& box_model() const { return layout_node_with_style_and_box_metrics().box_model(); }
 
     struct OverflowData {
         CSSPixelRect scrollable_overflow_rect;
@@ -112,7 +117,12 @@ public:
     CSSPixels absolute_y() const { return absolute_rect().y(); }
     CSSPixelPoint absolute_position() const { return absolute_rect().location(); }
 
-    [[nodiscard]] bool has_scrollable_overflow() const { return m_overflow_data->has_scrollable_overflow; }
+    [[nodiscard]] bool has_scrollable_overflow() const
+    {
+        if (!m_overflow_data.has_value())
+            return false;
+        return m_overflow_data->has_scrollable_overflow;
+    }
 
     bool has_css_transform() const { return computed_values().transformations().size() > 0; }
 
@@ -125,10 +135,10 @@ public:
 
     void set_overflow_data(OverflowData data) { m_overflow_data = move(data); }
 
-    DOM::Node const* dom_node() const { return layout_box().dom_node(); }
-    DOM::Node* dom_node() { return layout_box().dom_node(); }
+    DOM::Node const* dom_node() const { return layout_node_with_style_and_box_metrics().dom_node(); }
+    DOM::Node* dom_node() { return layout_node_with_style_and_box_metrics().dom_node(); }
 
-    virtual void set_needs_display() const override;
+    virtual void set_needs_display(InvalidateDisplayList = InvalidateDisplayList::Yes) override;
 
     virtual void apply_scroll_offset(PaintContext&, PaintPhase) const override;
     virtual void reset_scroll_offset(PaintContext&, PaintPhase) const override;
@@ -204,14 +214,38 @@ public:
 
     Optional<CSSPixelRect> get_clip_rect() const;
 
-    bool is_viewport() const { return layout_box().is_viewport(); }
+    bool is_viewport() const { return layout_node_with_style_and_box_metrics().is_viewport(); }
 
     virtual bool wants_mouse_events() const override;
 
+    CSSPixelRect transform_box_rect() const;
     virtual void resolve_paint_properties() override;
+
+    RefPtr<ScrollFrame const> nearest_scroll_frame() const;
+
+    CSSPixelRect border_box_rect_relative_to_nearest_scrollable_ancestor() const;
+    PaintableBox const* nearest_scrollable_ancestor() const;
+
+    struct StickyInsets {
+        Optional<CSSPixels> top;
+        Optional<CSSPixels> right;
+        Optional<CSSPixels> bottom;
+        Optional<CSSPixels> left;
+    };
+    StickyInsets const& sticky_insets() const { return *m_sticky_insets; }
+    void set_sticky_insets(OwnPtr<StickyInsets> sticky_insets) { m_sticky_insets = move(sticky_insets); }
+
+    [[nodiscard]] bool is_scrollable() const;
+
+    void set_used_values_for_grid_template_columns(RefPtr<CSS::GridTrackSizeListStyleValue> style_value) { m_used_values_for_grid_template_columns = move(style_value); }
+    RefPtr<CSS::GridTrackSizeListStyleValue> const& used_values_for_grid_template_columns() const { return m_used_values_for_grid_template_columns; }
+
+    void set_used_values_for_grid_template_rows(RefPtr<CSS::GridTrackSizeListStyleValue> style_value) { m_used_values_for_grid_template_rows = move(style_value); }
+    RefPtr<CSS::GridTrackSizeListStyleValue> const& used_values_for_grid_template_rows() const { return m_used_values_for_grid_template_rows; }
 
 protected:
     explicit PaintableBox(Layout::Box const&);
+    explicit PaintableBox(Layout::InlineNode const&);
 
     virtual void paint_border(PaintContext&) const;
     virtual void paint_backdrop_filter(PaintContext&) const;
@@ -221,10 +255,15 @@ protected:
     virtual CSSPixelRect compute_absolute_rect() const;
     virtual CSSPixelRect compute_absolute_paint_rect() const;
 
+    struct ScrollbarData {
+        CSSPixelRect thumb_rect;
+        CSSPixelFraction scroll_length;
+    };
     enum class ScrollDirection {
         Horizontal,
         Vertical,
     };
+    Optional<ScrollbarData> compute_scrollbar_data(ScrollDirection) const;
     [[nodiscard]] Optional<CSSPixelRect> scroll_thumb_rect(ScrollDirection) const;
     [[nodiscard]] bool is_scrollable(ScrollDirection) const;
 
@@ -263,6 +302,11 @@ private:
     Optional<ScrollDirection> m_scroll_thumb_dragging_direction;
 
     ResolvedBackground m_resolved_background;
+
+    OwnPtr<StickyInsets> m_sticky_insets;
+
+    RefPtr<CSS::GridTrackSizeListStyleValue> m_used_values_for_grid_template_columns;
+    RefPtr<CSS::GridTrackSizeListStyleValue> m_used_values_for_grid_template_rows;
 };
 
 class PaintableWithLines : public PaintableBox {
@@ -270,10 +314,11 @@ class PaintableWithLines : public PaintableBox {
 
 public:
     static JS::NonnullGCPtr<PaintableWithLines> create(Layout::BlockContainer const&);
+    static JS::NonnullGCPtr<PaintableWithLines> create(Layout::InlineNode const&, size_t line_index);
     virtual ~PaintableWithLines() override;
 
-    Layout::BlockContainer const& layout_box() const;
-    Layout::BlockContainer& layout_box();
+    Layout::NodeWithStyleAndBoxModelMetrics const& layout_node_with_style_and_box_metrics() const;
+    Layout::NodeWithStyleAndBoxModelMetrics& layout_node_with_style_and_box_metrics();
 
     Vector<PaintableFragment> const& fragments() const { return m_fragments; }
     Vector<PaintableFragment>& fragments() { return m_fragments; }
@@ -307,13 +352,18 @@ public:
 
     virtual void resolve_paint_properties() override;
 
+    size_t line_index() const { return m_line_index; }
+
 protected:
     PaintableWithLines(Layout::BlockContainer const&);
+    PaintableWithLines(Layout::InlineNode const&, size_t line_index);
 
 private:
     [[nodiscard]] virtual bool is_paintable_with_lines() const final { return true; }
 
     Vector<PaintableFragment> m_fragments;
+
+    size_t m_line_index { 0 };
 };
 
 void paint_text_decoration(PaintContext&, TextPaintable const&, PaintableFragment const&);

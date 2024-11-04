@@ -242,6 +242,9 @@ public:
         return adopt_nonnull_ref_or_enomem(new (nothrow) CanvasLinearGradientPaintStyle(p0, p1));
     }
 
+    FloatPoint start_point() const { return m_p0; }
+    FloatPoint end_point() const { return m_p1; }
+
 private:
     virtual void paint(IntRect physical_bounding_box, PaintFunction paint) const override;
 
@@ -282,6 +285,11 @@ public:
         return adopt_nonnull_ref_or_enomem(new (nothrow) CanvasRadialGradientPaintStyle(start_center, start_radius, end_center, end_radius));
     }
 
+    Gfx::FloatPoint start_center() const { return m_start_center; }
+    float start_radius() const { return m_start_radius; }
+    Gfx::FloatPoint end_center() const { return m_end_center; }
+    float end_radius() const { return m_end_radius; }
+
 private:
     virtual void paint(IntRect physical_bounding_box, PaintFunction paint) const override;
 
@@ -315,9 +323,6 @@ public:
     {
         m_spread_method = spread_method;
     }
-
-    void set_inverse_transform(AffineTransform transform) { m_inverse_transform = transform; }
-    void set_scale(float scale) { m_scale = scale; }
 
 protected:
     Optional<AffineTransform> const& scale_adjusted_inverse_gradient_transform() const { return m_inverse_transform; }

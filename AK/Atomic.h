@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -110,6 +110,15 @@ template<typename T, typename V = RemoveVolatile<T>>
 static inline V* atomic_load(T volatile** var, MemoryOrder order = memory_order_seq_cst) noexcept
 {
     return __atomic_load_n(const_cast<V**>(var), order);
+}
+
+static inline void atomic_pause()
+{
+#if __has_builtin(__builtin_ia32_pause)
+    __builtin_ia32_pause();
+#elif __has_builtin(__builtin_arm_yield)
+    __builtin_arm_yield();
+#endif
 }
 
 template<typename T>

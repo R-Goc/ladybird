@@ -1,9 +1,12 @@
 set(TEST_SOURCES
     TestH264Decode.cpp
     TestParseMatroska.cpp
+    TestPlaybackStream.cpp
+    TestVorbisDecode.cpp
     TestVP9Decode.cpp
+    TestWav.cpp
 )
 
 foreach(source IN LISTS TEST_SOURCES)
-    serenity_test("${source}" LibMedia LIBS LibMedia)
+    lagom_test("${source}" LibMedia LIBS LibMedia LibFileSystem WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 endforeach()

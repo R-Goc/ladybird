@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -13,7 +13,7 @@
 #include <LibWeb/DOMURL/DOMURL.h>
 #include <LibWeb/HTML/BrowsingContext.h>
 #include <LibWeb/HTML/BrowsingContextGroup.h>
-#include <LibWeb/HTML/CrossOrigin/CrossOriginOpenerPolicy.h>
+#include <LibWeb/HTML/CrossOrigin/OpenerPolicy.h>
 #include <LibWeb/HTML/DocumentState.h>
 #include <LibWeb/HTML/HTMLAnchorElement.h>
 #include <LibWeb/HTML/HTMLDocument.h>
@@ -59,15 +59,17 @@ bool url_matches_about_srcdoc(URL::URL const& url)
 }
 
 // https://html.spec.whatwg.org/multipage/document-sequences.html#determining-the-origin
-HTML::Origin determine_the_origin(URL::URL const& url, SandboxingFlagSet sandbox_flags, Optional<HTML::Origin> source_origin)
+URL::Origin determine_the_origin(Optional<URL::URL> const& url, SandboxingFlagSet sandbox_flags, Optional<URL::Origin> source_origin)
 {
     // 1. If sandboxFlags has its sandboxed origin browsing context flag set, then return a new opaque origin.
     if (has_flag(sandbox_flags, SandboxingFlagSet::SandboxedOrigin)) {
-        return HTML::Origin {};
+        return URL::Origin {};
     }
 
-    // FIXME: 2. If url is null, then return a new opaque origin.
-    // FIXME: There appears to be no way to get a null URL here, so it might be a spec bug.
+    // 2. If url is null, then return a new opaque origin.
+    if (!url.has_value()) {
+        return URL::Origin {};
+    }
 
     // 3. If url is about:srcdoc, then:
     if (url == "about:srcdoc"sv) {
@@ -79,11 +81,11 @@ HTML::Origin determine_the_origin(URL::URL const& url, SandboxingFlagSet sandbox
     }
 
     // 4. If url matches about:blank and sourceOrigin is non-null, then return sourceOrigin.
-    if (url_matches_about_blank(url) && source_origin.has_value())
+    if (url_matches_about_blank(*url) && source_origin.has_value())
         return source_origin.release_value();
 
     // 5. Return url's origin.
-    return DOMURL::url_origin(url);
+    return url->origin();
 }
 
 // https://html.spec.whatwg.org/multipage/document-sequences.html#creating-a-new-auxiliary-browsing-context
@@ -142,7 +144,7 @@ WebIDL::ExceptionOr<BrowsingContext::BrowsingContextAndDocument> BrowsingContext
     [[maybe_unused]] auto unsafe_context_creation_time = HighResolutionTime::unsafe_shared_current_time();
 
     // 3. Let creatorOrigin be null.
-    Optional<Origin> creator_origin = {};
+    Optional<URL::Origin> creator_origin = {};
 
     // 4. Let creatorBaseURL be null.
     Optional<URL::URL> creator_base_url = {};
@@ -259,10 +261,10 @@ WebIDL::ExceptionOr<BrowsingContext::BrowsingContextAndDocument> BrowsingContext
 
         // 3. If creator's origin is same origin with creator's relevant settings object's top-level origin,
         if (creator->origin().is_same_origin(creator->relevant_settings_object().top_level_origin)) {
-            // then set document's cross-origin opener policy to creator's browsing context's top-level browsing context's active document's cross-origin opener policy.
+            // then set document's opener policy to creator's browsing context's top-level browsing context's active document's opener policy.
             VERIFY(creator->browsing_context());
             VERIFY(creator->browsing_context()->top_level_browsing_context()->active_document());
-            document->set_cross_origin_opener_policy(creator->browsing_context()->top_level_browsing_context()->active_document()->cross_origin_opener_policy());
+            document->set_opener_policy(creator->browsing_context()->top_level_browsing_context()->active_document()->opener_policy());
         }
     }
 
@@ -300,7 +302,6 @@ void BrowsingContext::visit_edges(Cell::Visitor& visitor)
     visitor.visit(m_page);
     visitor.visit(m_window_proxy);
     visitor.visit(m_group);
-    visitor.visit(m_parent);
     visitor.visit(m_first_child);
     visitor.visit(m_last_child);
     visitor.visit(m_next_sibling);
@@ -321,8 +322,10 @@ JS::NonnullGCPtr<HTML::TraversableNavigable> BrowsingContext::top_level_traversa
 // https://html.spec.whatwg.org/multipage/browsers.html#top-level-browsing-context
 bool BrowsingContext::is_top_level() const
 {
-    // A browsing context that has no parent browsing context is the top-level browsing context for itself and all of the browsing contexts for which it is an ancestor browsing context.
-    return !parent();
+    // FIXME: Remove this. The active document's navigable is sometimes null when it shouldn't be, failing assertions.
+    return true;
+    // A top-level browsing context is a browsing context whose active document's node navigable is a traversable navigable.
+    return active_document() != nullptr && active_document()->navigable() != nullptr && active_document()->navigable()->is_traversable();
 }
 
 JS::GCPtr<BrowsingContext> BrowsingContext::top_level_browsing_context() const
@@ -394,6 +397,11 @@ BrowsingContextGroup* BrowsingContext::group()
     return m_group;
 }
 
+BrowsingContextGroup const* BrowsingContext::group() const
+{
+    return m_group;
+}
+
 void BrowsingContext::set_group(BrowsingContextGroup* group)
 {
     m_group = group;
@@ -434,12 +442,28 @@ JS::GCPtr<BrowsingContext> BrowsingContext::next_sibling() const
     return m_next_sibling;
 }
 
-bool BrowsingContext::is_ancestor_of(BrowsingContext const& other) const
+// https://html.spec.whatwg.org/multipage/document-sequences.html#ancestor-browsing-context
+bool BrowsingContext::is_ancestor_of(BrowsingContext const& potential_descendant) const
 {
-    for (auto ancestor = other.parent(); ancestor; ancestor = ancestor->parent()) {
-        if (ancestor == this)
+    // A browsing context potentialDescendant is said to be an ancestor of a browsing context potentialAncestor if the following algorithm returns true:
+
+    // 1. Let potentialDescendantDocument be potentialDescendant's active document.
+    auto const* potential_descendant_document = potential_descendant.active_document();
+
+    // 2. If potentialDescendantDocument is not fully active, then return false.
+    if (!potential_descendant_document->is_fully_active())
+        return false;
+
+    // 3. Let ancestorBCs be the list obtained by taking the browsing context of the active document of each member of potentialDescendantDocument's ancestor navigables.
+    for (auto const& ancestor : potential_descendant_document->ancestor_navigables()) {
+        auto ancestor_browsing_context = ancestor->active_browsing_context();
+
+        // 4. If ancestorBCs contains potentialAncestor, then return true.
+        if (ancestor_browsing_context == this)
             return true;
     }
+
+    // 5. Return false.
     return false;
 }
 
@@ -464,7 +488,12 @@ bool BrowsingContext::is_familiar_with(BrowsingContext const& other) const
 
     // 4. If there exists an ancestor browsing context of B whose active document has the same origin as the active document of A, then return true.
     // NOTE: This includes the case where A is an ancestor browsing context of B.
-    for (auto ancestor = B.parent(); ancestor; ancestor = ancestor->parent()) {
+
+    // If B's active document is not fully active then it cannot have ancestor browsing context
+    if (!B.active_document()->is_fully_active())
+        return false;
+
+    for (auto const& ancestor : B.active_document()->ancestor_navigables()) {
         if (ancestor->active_document()->origin().is_same_origin(A.active_document()->origin()))
             return true;
     }
@@ -483,7 +512,7 @@ SandboxingFlagSet determine_the_creation_sandboxing_flags(BrowsingContext const&
 bool BrowsingContext::has_navigable_been_destroyed() const
 {
     auto navigable = active_document()->navigable();
-    return navigable && navigable->has_been_destroyed();
+    return !navigable || navigable->has_been_destroyed();
 }
 
 }

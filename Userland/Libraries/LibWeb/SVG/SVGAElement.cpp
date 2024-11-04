@@ -43,6 +43,13 @@ void SVGAElement::attribute_changed(FlyString const& name, Optional<String> cons
     }
 }
 
+// https://html.spec.whatwg.org/multipage/interaction.html#dom-tabindex
+i32 SVGAElement::default_tab_index_value() const
+{
+    // See the base function for the spec comments.
+    return 0;
+}
+
 // https://svgwg.org/svg2-draft/linking.html#__svg__SVGAElement__relList
 JS::NonnullGCPtr<DOM::DOMTokenList> SVGAElement::rel_list()
 {
@@ -52,7 +59,7 @@ JS::NonnullGCPtr<DOM::DOMTokenList> SVGAElement::rel_list()
     return *m_rel_list;
 }
 
-JS::GCPtr<Layout::Node> SVGAElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
+JS::GCPtr<Layout::Node> SVGAElement::create_layout_node(CSS::StyleProperties style)
 {
     return heap().allocate_without_realm<Layout::SVGGraphicsBox>(document(), *this, move(style));
 }

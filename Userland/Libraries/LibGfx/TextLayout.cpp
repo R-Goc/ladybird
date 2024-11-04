@@ -1,57 +1,52 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, sin-ack <sin-ack@protonmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "TextLayout.h"
-#include "Font/Emoji.h"
-#include <AK/Debug.h>
-#include <LibUnicode/CharacterTypes.h>
-#include <LibUnicode/Emoji.h>
+#include <AK/TypeCasts.h>
+#include <LibGfx/Font/ScaledFont.h>
+#include <harfbuzz/hb.h>
 
 namespace Gfx {
 
-DrawGlyphOrEmoji prepare_draw_glyph_or_emoji(FloatPoint point, Utf8CodePointIterator& it, Font const& font)
+RefPtr<GlyphRun> shape_text(FloatPoint baseline_start, Utf8View string, Gfx::Font const& font, GlyphRun::TextType text_type)
 {
-    u32 code_point = *it;
-    auto next_code_point = it.peek(1);
+    hb_buffer_t* buffer = hb_buffer_create();
+    ScopeGuard destroy_buffer = [&]() { hb_buffer_destroy(buffer); };
+    hb_buffer_add_utf8(buffer, reinterpret_cast<char const*>(string.bytes()), string.byte_length(), 0, -1);
+    hb_buffer_guess_segment_properties(buffer);
 
-    ScopeGuard consume_variation_selector = [&, initial_it = it] {
-        // If we advanced the iterator to consume an emoji sequence, don't look for another variation selector.
-        if (initial_it != it)
-            return;
+    u32 glyph_count;
+    auto* glyph_info = hb_buffer_get_glyph_infos(buffer, &glyph_count);
+    Vector<hb_glyph_info_t> const input_glyph_info({ glyph_info, glyph_count });
 
-        // Otherwise, discard one code point if it's a variation selector.
-        if (next_code_point.has_value() && Unicode::code_point_has_variation_selector_property(*next_code_point))
-            ++it;
-    };
+    auto* hb_font = font.harfbuzz_font();
+    hb_shape(hb_font, buffer, nullptr, 0);
 
-    // NOTE: We don't check for emoji
-    auto font_contains_glyph = font.contains_glyph(code_point);
-    auto check_for_emoji = !font.has_color_bitmaps() && Unicode::could_be_start_of_emoji_sequence(it, font_contains_glyph ? Unicode::SequenceType::EmojiPresentation : Unicode::SequenceType::Any);
+    glyph_info = hb_buffer_get_glyph_infos(buffer, &glyph_count);
+    auto* positions = hb_buffer_get_glyph_positions(buffer, &glyph_count);
 
-    // If the font contains the glyph, and we know it's not the start of an emoji, draw a text glyph.
-    if (font_contains_glyph && !check_for_emoji) {
-        return DrawGlyph {
-            .position = point,
-            .code_point = code_point,
-        };
+    Vector<Gfx::DrawGlyph> glyph_run;
+    FloatPoint point = baseline_start;
+    for (size_t i = 0; i < glyph_count; ++i) {
+
+        auto position = point
+            - FloatPoint { 0, font.pixel_metrics().ascent }
+            + FloatPoint { positions[i].x_offset, positions[i].y_offset } / text_shaping_resolution;
+        glyph_run.append({ position, glyph_info[i].codepoint });
+        point += FloatPoint { positions[i].x_advance, positions[i].y_advance } / text_shaping_resolution;
     }
 
-    // If we didn't find a text glyph, or have an emoji variation selector or regional indicator, try to draw an emoji glyph.
-    if (auto const* emoji = Emoji::emoji_for_code_point_iterator(it)) {
-        return DrawEmoji {
-            .position = point,
-            .emoji = emoji,
-        };
-    }
+    return adopt_ref(*new Gfx::GlyphRun(move(glyph_run), font, text_type, point.x()));
+}
 
-    return DrawGlyph {
-        .position = point,
-        .code_point = code_point,
-    };
+float measure_text_width(Utf8View const& string, Gfx::Font const& font)
+{
+    auto glyph_run = shape_text({}, string, font, GlyphRun::TextType::Common);
+    return glyph_run->width();
 }
 
 }

@@ -88,7 +88,7 @@ WebIDL::ExceptionOr<void> ShadowRoot::set_inner_html(StringView value)
 
         if (this->is_connected()) {
             // NOTE: Since the DOM has changed, we have to rebuild the layout tree.
-            this->document().invalidate_layout();
+            this->document().invalidate_layout_tree();
         }
     }
 
@@ -122,7 +122,7 @@ WebIDL::ExceptionOr<void> ShadowRoot::set_html_unsafe(StringView html)
 CSS::StyleSheetList& ShadowRoot::style_sheets()
 {
     if (!m_style_sheets)
-        m_style_sheets = CSS::StyleSheetList::create(document());
+        m_style_sheets = CSS::StyleSheetList::create(*this);
     return *m_style_sheets;
 }
 

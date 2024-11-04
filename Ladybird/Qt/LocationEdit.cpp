@@ -31,6 +31,9 @@ LocationEdit::LocationEdit(QWidget* parent)
     });
 
     connect(this, &QLineEdit::returnPressed, [&] {
+        if (text().isEmpty())
+            return;
+
         clearFocus();
 
         Optional<StringView> search_engine_url;
@@ -73,7 +76,11 @@ void LocationEdit::focusOutEvent(QFocusEvent* event)
         if (text().isEmpty())
             setText(qstring_from_ak_string(m_url.serialize()));
     }
-    highlight_location();
+
+    if (event->reason() != Qt::PopupFocusReason) {
+        setCursorPosition(0);
+        highlight_location();
+    }
 }
 
 void LocationEdit::update_placeholder()
@@ -134,6 +141,7 @@ void LocationEdit::set_url(URL::URL const& url)
         clear();
     } else {
         setText(qstring_from_ak_string(url.serialize()));
+        setCursorPosition(0);
     }
 }
 

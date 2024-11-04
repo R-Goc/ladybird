@@ -1,279 +1,110 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2024, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
 
-#include <AK/ByteString.h>
-#include <AK/Optional.h>
-#include <AK/Vector.h>
+#include <AK/Forward.h>
+#include <AK/NonnullOwnPtr.h>
+#include <AK/Utf8View.h>
 #include <LibGfx/Forward.h>
-#include <LibGfx/Line.h>
-#include <LibGfx/Point.h>
-#include <LibGfx/Rect.h>
+#include <LibGfx/PaintStyle.h>
+#include <LibGfx/ScalingMode.h>
+#include <LibGfx/WindingRule.h>
 
 namespace Gfx {
 
-class Path;
-
-class PathSegment {
+class PathImpl {
 public:
-    enum Command : u8 {
-        MoveTo,
-        LineTo,
-        QuadraticBezierCurveTo,
-        CubicBezierCurveTo,
-    };
+    static NonnullOwnPtr<Gfx::PathImpl> create();
 
-    ALWAYS_INLINE Command command() const { return m_command; }
-    ALWAYS_INLINE FloatPoint point() const { return m_points.last(); }
-    ALWAYS_INLINE FloatPoint through() const
-    {
-        VERIFY(m_command == Command::QuadraticBezierCurveTo);
-        return m_points[0];
-    }
-    ALWAYS_INLINE FloatPoint through_0() const
-    {
-        VERIFY(m_command == Command::CubicBezierCurveTo);
-        return m_points[0];
-    }
-    ALWAYS_INLINE FloatPoint through_1() const
-    {
-        VERIFY(m_command == Command::CubicBezierCurveTo);
-        return m_points[1];
-    }
-    ALWAYS_INLINE ReadonlySpan<FloatPoint> points() const { return m_points; }
+    virtual ~PathImpl();
 
-    static constexpr int points_per_command(Command command)
-    {
-        switch (command) {
-        case Command::MoveTo:
-        case Command::LineTo:
-            return 1; // Single point.
-        case Command::QuadraticBezierCurveTo:
-            return 2; // Control point + point.
-        case Command::CubicBezierCurveTo:
-            return 3; // Two control points + point.
-        }
-        VERIFY_NOT_REACHED();
-    }
+    virtual void clear() = 0;
+    virtual void move_to(Gfx::FloatPoint const&) = 0;
+    virtual void line_to(Gfx::FloatPoint const&) = 0;
+    virtual void close_all_subpaths() = 0;
+    virtual void close() = 0;
+    virtual void elliptical_arc_to(FloatPoint point, FloatSize radii, float x_axis_rotation, bool large_arc, bool sweep) = 0;
+    virtual void arc_to(FloatPoint point, float radius, bool large_arc, bool sweep) = 0;
+    virtual void quadratic_bezier_curve_to(FloatPoint through, FloatPoint point) = 0;
+    virtual void cubic_bezier_curve_to(FloatPoint c1, FloatPoint c2, FloatPoint p2) = 0;
+    virtual void text(Utf8View, Font const&) = 0;
 
-    PathSegment(Command command, ReadonlySpan<FloatPoint> points)
-        : m_command(command)
-        , m_points(points) {};
+    virtual void append_path(Gfx::Path const&) = 0;
+    virtual void intersect(Gfx::Path const&) = 0;
 
-private:
-    Command m_command;
-    ReadonlySpan<FloatPoint> m_points;
-};
+    [[nodiscard]] virtual bool is_empty() const = 0;
+    virtual Gfx::FloatPoint last_point() const = 0;
+    virtual Gfx::FloatRect bounding_box() const = 0;
+    virtual void set_fill_type(Gfx::WindingRule winding_rule) = 0;
+    virtual bool contains(FloatPoint point, Gfx::WindingRule) const = 0;
 
-class PathSegmentIterator {
-public:
-    int operator<=>(PathSegmentIterator other) const
-    {
-        if (m_command_index > other.m_command_index)
-            return 1;
-        if (m_command_index < other.m_command_index)
-            return -1;
-        return 0;
-    }
-    bool operator==(PathSegmentIterator other) const { return m_command_index == other.m_command_index; }
-    bool operator!=(PathSegmentIterator other) const { return m_command_index != other.m_command_index; }
-
-    PathSegmentIterator operator++()
-    {
-        if (m_command_index < m_commands.size())
-            m_point_index += PathSegment::points_per_command(m_commands[m_command_index++]);
-        return *this;
-    }
-    PathSegmentIterator operator++(int)
-    {
-        PathSegmentIterator old(*this);
-        ++*this;
-        return old;
-    }
-
-    PathSegmentIterator operator--()
-    {
-        if (m_command_index > 0)
-            m_point_index -= PathSegment::points_per_command(m_commands[--m_command_index]);
-        return *this;
-    }
-    PathSegmentIterator operator--(int)
-    {
-        PathSegmentIterator old(*this);
-        --*this;
-        return old;
-    }
-
-    PathSegment operator*() const
-    {
-        auto command = m_commands[m_command_index];
-        return PathSegment { command, m_points.span().slice(m_point_index, PathSegment::points_per_command(command)) };
-    }
-
-    PathSegmentIterator& operator=(PathSegmentIterator const& other)
-    {
-        m_point_index = other.m_point_index;
-        m_command_index = other.m_command_index;
-        return *this;
-    }
-    PathSegmentIterator(PathSegmentIterator const&) = default;
-
-    friend Path;
-
-private:
-    PathSegmentIterator(Vector<FloatPoint> const& points, Vector<PathSegment::Command> const& commands, size_t point_index = 0, size_t command_index = 0)
-        : m_points(points)
-        , m_commands(commands)
-        , m_point_index(point_index)
-        , m_command_index(command_index)
-    {
-    }
-
-    // Note: Store reference to vectors from Gfx::Path so appending segments does not invalidate iterators.
-    Vector<FloatPoint> const& m_points;
-    Vector<PathSegment::Command> const& m_commands;
-    size_t m_point_index { 0 };
-    size_t m_command_index { 0 };
+    virtual NonnullOwnPtr<PathImpl> clone() const = 0;
+    virtual NonnullOwnPtr<PathImpl> copy_transformed(Gfx::AffineTransform const&) const = 0;
+    virtual NonnullOwnPtr<PathImpl> place_text_along(Utf8View text, Font const&) const = 0;
 };
 
 class Path {
 public:
     Path() = default;
 
-    void move_to(FloatPoint point)
+    Path(Path const& other)
+        : m_impl(other.impl().clone())
     {
-        append_segment<PathSegment::MoveTo>(point);
     }
 
-    void line_to(FloatPoint point)
+    Path& operator=(Path const& other)
     {
-        append_segment<PathSegment::LineTo>(point);
-        invalidate_split_lines();
+        if (this != &other)
+            m_impl = other.impl().clone();
+        return *this;
     }
 
-    void horizontal_line_to(float x)
-    {
-        line_to({ x, last_point().y() });
-    }
+    Path(Path&& other) = default;
+    Path& operator=(Path&& other) = default;
 
-    void vertical_line_to(float y)
-    {
-        line_to({ last_point().x(), y });
-    }
+    void clear() { impl().clear(); }
+    void move_to(Gfx::FloatPoint const& point) { impl().move_to(point); }
+    void line_to(Gfx::FloatPoint const& point) { impl().line_to(point); }
+    void close_all_subpaths() { impl().close_all_subpaths(); }
+    void close() { impl().close(); }
+    void elliptical_arc_to(FloatPoint point, FloatSize radii, float x_axis_rotation, bool large_arc, bool sweep) { impl().elliptical_arc_to(point, radii, x_axis_rotation, large_arc, sweep); }
+    void arc_to(FloatPoint point, float radius, bool large_arc, bool sweep) { impl().arc_to(point, radius, large_arc, sweep); }
+    void quadratic_bezier_curve_to(FloatPoint through, FloatPoint point) { impl().quadratic_bezier_curve_to(through, point); }
+    void cubic_bezier_curve_to(FloatPoint c1, FloatPoint c2, FloatPoint p2) { impl().cubic_bezier_curve_to(c1, c2, p2); }
+    void text(Utf8View text, Font const& font) { impl().text(text, font); }
 
-    void quadratic_bezier_curve_to(FloatPoint through, FloatPoint point)
-    {
-        append_segment<PathSegment::QuadraticBezierCurveTo>(through, point);
-        invalidate_split_lines();
-    }
+    void horizontal_line_to(float x) { line_to({ x, last_point().y() }); }
+    void vertical_line_to(float y) { line_to({ last_point().x(), y }); }
 
-    void cubic_bezier_curve_to(FloatPoint c1, FloatPoint c2, FloatPoint p2)
-    {
-        append_segment<PathSegment::CubicBezierCurveTo>(c1, c2, p2);
-        invalidate_split_lines();
-    }
+    void append_path(Gfx::Path const& other) { impl().append_path(other); }
+    void intersect(Gfx::Path const& other) { impl().intersect(other); }
 
-    void elliptical_arc_to(FloatPoint point, FloatSize radii, float x_axis_rotation, bool large_arc, bool sweep);
-    void arc_to(FloatPoint point, float radius, bool large_arc, bool sweep)
-    {
-        elliptical_arc_to(point, { radius, radius }, 0, large_arc, sweep);
-    }
+    [[nodiscard]] bool is_empty() const { return impl().is_empty(); }
+    Gfx::FloatPoint last_point() const { return impl().last_point(); }
+    Gfx::FloatRect bounding_box() const { return impl().bounding_box(); }
+    bool contains(FloatPoint point, Gfx::WindingRule winding_rule) const { return impl().contains(point, winding_rule); }
+    void set_fill_type(Gfx::WindingRule winding_rule) { impl().set_fill_type(winding_rule); }
 
-    void text(Utf8View, Font const&);
+    Gfx::Path clone() const { return Gfx::Path { impl().clone() }; }
+    Gfx::Path copy_transformed(Gfx::AffineTransform const& transform) const { return Gfx::Path { impl().copy_transformed(transform) }; }
+    Gfx::Path place_text_along(Utf8View text, Font const& font) const { return Gfx::Path { impl().place_text_along(text, font) }; }
 
-    FloatPoint last_point()
-    {
-        if (!m_points.is_empty())
-            return m_points.last();
-        return {};
-    }
+    void transform(Gfx::AffineTransform const& transform) { m_impl = impl().copy_transformed(transform); }
 
-    void close();
-    void close_all_subpaths();
-
-    Path stroke_to_fill(float thickness) const;
-
-    Path place_text_along(Utf8View text, Font const&) const;
-
-    Path copy_transformed(AffineTransform const&) const;
-
-    ReadonlySpan<FloatLine> split_lines() const
-    {
-        if (!m_split_lines.has_value()) {
-            const_cast<Path*>(this)->segmentize_path();
-            VERIFY(m_split_lines.has_value());
-        }
-        return m_split_lines->lines;
-    }
-
-    Gfx::FloatRect const& bounding_box() const
-    {
-        (void)split_lines();
-        return m_split_lines->bounding_box;
-    }
-
-    void append_path(Path const& path)
-    {
-        m_commands.extend(path.m_commands);
-        m_points.extend(path.m_points);
-        invalidate_split_lines();
-    }
-
-    ByteString to_byte_string() const;
-
-    PathSegmentIterator begin() const
-    {
-        return PathSegmentIterator(m_points, m_commands);
-    }
-
-    PathSegmentIterator end() const
-    {
-        return PathSegmentIterator(m_points, m_commands, m_points.size(), m_commands.size());
-    }
-
-    bool is_empty() const
-    {
-        return m_commands.is_empty();
-    }
-
-    void clear()
-    {
-        *this = Path {};
-    }
+    PathImpl& impl() { return *m_impl; }
+    PathImpl const& impl() const { return *m_impl; }
 
 private:
-    void approximate_elliptical_arc_with_cubic_beziers(FloatPoint center, FloatSize radii, float x_axis_rotation, float theta, float theta_delta);
-
-    void invalidate_split_lines()
+    explicit Path(NonnullOwnPtr<PathImpl>&& impl)
+        : m_impl(move(impl))
     {
-        m_split_lines.clear();
-    }
-    void segmentize_path();
-
-    template<PathSegment::Command command, typename... Args>
-    void append_segment(Args&&... args)
-    {
-        constexpr auto point_count = sizeof...(Args);
-        static_assert(point_count == PathSegment::points_per_command(command));
-        FloatPoint points[] { args... };
-        // Note: This should maintain the invariant that `m_points.last()` is always the last point in the path.
-        m_points.append(points, point_count);
-        m_commands.append(command);
     }
 
-    Vector<FloatPoint> m_points {};
-    Vector<PathSegment::Command> m_commands {};
-
-    struct SplitLines {
-        Vector<FloatLine> lines;
-        Gfx::FloatRect bounding_box;
-    };
-
-    Optional<SplitLines> m_split_lines {};
+    NonnullOwnPtr<PathImpl> m_impl { PathImpl::create() };
 };
 
 }

@@ -22,19 +22,21 @@ void visit_edges(JS::Object&, JS::Cell::Visitor&);
 void finalize(JS::Object&);
 
 bool validate(JS::VM&, JS::Handle<WebIDL::BufferSource>& bytes);
-WebIDL::ExceptionOr<JS::Value> compile(JS::VM&, JS::Handle<WebIDL::BufferSource>& bytes);
+WebIDL::ExceptionOr<JS::NonnullGCPtr<WebIDL::Promise>> compile(JS::VM&, JS::Handle<WebIDL::BufferSource>& bytes);
+WebIDL::ExceptionOr<JS::NonnullGCPtr<WebIDL::Promise>> compile_streaming(JS::VM&, JS::Handle<WebIDL::Promise> source);
 
-WebIDL::ExceptionOr<JS::Value> instantiate(JS::VM&, JS::Handle<WebIDL::BufferSource>& bytes, Optional<JS::Handle<JS::Object>>& import_object);
-WebIDL::ExceptionOr<JS::Value> instantiate(JS::VM&, Module const& module_object, Optional<JS::Handle<JS::Object>>& import_object);
+WebIDL::ExceptionOr<JS::NonnullGCPtr<WebIDL::Promise>> instantiate(JS::VM&, JS::Handle<WebIDL::BufferSource>& bytes, Optional<JS::Handle<JS::Object>>& import_object);
+WebIDL::ExceptionOr<JS::NonnullGCPtr<WebIDL::Promise>> instantiate(JS::VM&, Module const& module_object, Optional<JS::Handle<JS::Object>>& import_object);
+WebIDL::ExceptionOr<JS::NonnullGCPtr<WebIDL::Promise>> instantiate_streaming(JS::VM&, JS::Handle<WebIDL::Promise> source, Optional<JS::Handle<JS::Object>>& import_object);
 
 namespace Detail {
 struct CompiledWebAssemblyModule : public RefCounted<CompiledWebAssemblyModule> {
-    explicit CompiledWebAssemblyModule(Wasm::Module&& module)
+    explicit CompiledWebAssemblyModule(NonnullRefPtr<Wasm::Module> module)
         : module(move(module))
     {
     }
 
-    Wasm::Module module;
+    NonnullRefPtr<Wasm::Module> module;
 };
 
 class WebAssemblyCache {
@@ -42,15 +44,19 @@ public:
     void add_compiled_module(NonnullRefPtr<CompiledWebAssemblyModule> module) { m_compiled_modules.append(module); }
     void add_function_instance(Wasm::FunctionAddress address, JS::GCPtr<JS::NativeFunction> function) { m_function_instances.set(address, function); }
     void add_imported_object(JS::GCPtr<JS::Object> object) { m_imported_objects.set(object); }
+    void add_extern_value(Wasm::ExternAddress address, JS::Value value) { m_extern_values.set(address, value); }
 
     Optional<JS::GCPtr<JS::NativeFunction>> get_function_instance(Wasm::FunctionAddress address) { return m_function_instances.get(address); }
+    Optional<JS::Value> get_extern_value(Wasm::ExternAddress address) { return m_extern_values.get(address); }
 
     HashMap<Wasm::FunctionAddress, JS::GCPtr<JS::NativeFunction>> function_instances() const { return m_function_instances; }
+    HashMap<Wasm::ExternAddress, JS::Value> extern_values() const { return m_extern_values; }
     HashTable<JS::GCPtr<JS::Object>> imported_objects() const { return m_imported_objects; }
     Wasm::AbstractMachine& abstract_machine() { return m_abstract_machine; }
 
 private:
     HashMap<Wasm::FunctionAddress, JS::GCPtr<JS::NativeFunction>> m_function_instances;
+    HashMap<Wasm::ExternAddress, JS::Value> m_extern_values;
     Vector<NonnullRefPtr<CompiledWebAssemblyModule>> m_compiled_modules;
     HashTable<JS::GCPtr<JS::Object>> m_imported_objects;
     Wasm::AbstractMachine m_abstract_machine;
@@ -58,10 +64,11 @@ private:
 
 WebAssemblyCache& get_cache(JS::Realm&);
 
-JS::ThrowCompletionOr<NonnullOwnPtr<Wasm::ModuleInstance>> instantiate_module(JS::VM&, Wasm::Module const&);
-JS::ThrowCompletionOr<NonnullRefPtr<CompiledWebAssemblyModule>> parse_module(JS::VM&, JS::Object* buffer);
+JS::ThrowCompletionOr<NonnullOwnPtr<Wasm::ModuleInstance>> instantiate_module(JS::VM&, Wasm::Module const&, JS::GCPtr<JS::Object> import_object);
+JS::ThrowCompletionOr<NonnullRefPtr<CompiledWebAssemblyModule>> compile_a_webassembly_module(JS::VM&, ByteBuffer);
 JS::NativeFunction* create_native_function(JS::VM&, Wasm::FunctionAddress address, ByteString const& name, Instance* instance = nullptr);
 JS::ThrowCompletionOr<Wasm::Value> to_webassembly_value(JS::VM&, JS::Value value, Wasm::ValueType const& type);
+Wasm::Value default_webassembly_value(JS::VM&, Wasm::ValueType type);
 JS::Value to_js_value(JS::VM&, Wasm::Value& wasm_value, Wasm::ValueType type);
 
 extern HashMap<JS::GCPtr<JS::Object>, WebAssemblyCache> s_caches;

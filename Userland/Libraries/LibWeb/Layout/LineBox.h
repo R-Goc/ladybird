@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -13,11 +13,18 @@ namespace Web::Layout {
 
 class LineBox {
 public:
-    LineBox() = default;
+    LineBox(CSS::Direction direction, CSS::WritingMode writing_mode)
+        : m_direction(direction)
+        , m_writing_mode(writing_mode)
+    {
+    }
 
-    CSSPixels width() const { return m_width; }
-    CSSPixels height() const { return m_height; }
-    CSSPixels bottom() const { return m_bottom; }
+    CSSPixels width() const;
+    CSSPixels height() const;
+    CSSPixels bottom() const;
+
+    CSSPixels inline_length() const { return m_inline_length; }
+    CSSPixels block_length() const { return m_block_length; }
     CSSPixels baseline() const { return m_baseline; }
 
     void add_fragment(Node const& layout_node, int start, int length, CSSPixels leading_size, CSSPixels trailing_size, CSSPixels leading_margin, CSSPixels trailing_margin, CSSPixels content_width, CSSPixels content_height, CSSPixels border_box_top, CSSPixels border_box_bottom, RefPtr<Gfx::GlyphRun> glyph_run = {});
@@ -38,10 +45,12 @@ private:
     friend class LineBuilder;
 
     Vector<LineBoxFragment> m_fragments;
-    CSSPixels m_width { 0 };
-    CSSPixels m_height { 0 };
+    CSSPixels m_inline_length { 0 };
+    CSSPixels m_block_length { 0 };
     CSSPixels m_bottom { 0 };
     CSSPixels m_baseline { 0 };
+    CSS::Direction m_direction { CSS::Direction::Ltr };
+    CSS::WritingMode m_writing_mode { CSS::WritingMode::HorizontalTb };
 
     // The amount of available width that was originally available when creating this line box. Used for text justification.
     AvailableSize m_original_available_width { AvailableSize::make_indefinite() };

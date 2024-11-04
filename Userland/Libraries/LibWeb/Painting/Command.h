@@ -18,6 +18,7 @@
 #include <LibGfx/ImmutableBitmap.h>
 #include <LibGfx/PaintStyle.h>
 #include <LibGfx/Palette.h>
+#include <LibGfx/Path.h>
 #include <LibGfx/Point.h>
 #include <LibGfx/Rect.h>
 #include <LibGfx/ScalingMode.h>
@@ -41,6 +42,7 @@ struct DrawGlyphRun {
     Gfx::IntRect rect;
     Gfx::FloatPoint translation;
     double scale { 1 };
+    Gfx::Orientation orientation { Gfx::Orientation::Horizontal };
 
     [[nodiscard]] Gfx::IntRect bounding_rect() const { return rect; }
 
@@ -93,6 +95,12 @@ struct DrawRepeatedImmutableBitmap {
 struct Save { };
 struct Restore { };
 
+struct Translate {
+    Gfx::IntPoint delta;
+
+    void translate_by(Gfx::IntPoint const& offset) { delta.translate_by(offset); }
+};
+
 struct AddClipRect {
     Gfx::IntRect rect;
 
@@ -104,20 +112,14 @@ struct StackingContextTransform {
     Gfx::FloatMatrix4x4 matrix;
 };
 
-struct StackingContextMask {
-    NonnullRefPtr<Gfx::Bitmap> mask_bitmap;
-    Gfx::Bitmap::MaskKind mask_kind;
-};
-
 struct PushStackingContext {
     float opacity;
-    bool is_fixed_position;
+    CSS::ResolvedFilter filter;
     // The bounding box of the source paintable (pre-transform).
     Gfx::IntRect source_paintable_rect;
     // A translation to be applied after the stacking context has been transformed.
-    Gfx::IntPoint post_transform_translation;
     StackingContextTransform transform;
-    Optional<StackingContextMask> mask = {};
+    Optional<Gfx::Path> clip_path = {};
 
     void translate_by(Gfx::IntPoint const& offset)
     {
@@ -285,7 +287,7 @@ struct DrawLine {
 struct ApplyBackdropFilter {
     Gfx::IntRect backdrop_region;
     BorderRadiiData border_radii_data;
-    CSS::ResolvedBackdropFilter backdrop_filter;
+    CSS::ResolvedFilter backdrop_filter;
 
     [[nodiscard]] Gfx::IntRect bounding_rect() const { return backdrop_region; }
 
@@ -374,6 +376,43 @@ struct PaintNestedDisplayList {
     }
 };
 
+struct PaintScrollBar {
+    int scroll_frame_id;
+    Gfx::IntRect rect;
+    CSSPixelFraction scroll_size;
+    bool vertical;
+
+    void translate_by(Gfx::IntPoint const& offset)
+    {
+        rect.translate_by(offset);
+    }
+};
+
+struct ApplyOpacity {
+    float opacity;
+};
+
+struct ApplyTransform {
+    Gfx::FloatPoint origin;
+    Gfx::FloatMatrix4x4 matrix;
+
+    void translate_by(Gfx::IntPoint const& offset)
+    {
+        origin.translate_by(offset.to_type<float>());
+    }
+};
+
+struct ApplyMaskBitmap {
+    Gfx::IntPoint origin;
+    NonnullRefPtr<Gfx::Bitmap> bitmap;
+    Gfx::Bitmap::MaskKind kind;
+
+    void translate_by(Gfx::IntPoint const& offset)
+    {
+        origin.translate_by(offset);
+    }
+};
+
 using Command = Variant<
     DrawGlyphRun,
     FillRect,
@@ -382,6 +421,7 @@ using Command = Variant<
     DrawRepeatedImmutableBitmap,
     Save,
     Restore,
+    Translate,
     AddClipRect,
     PushStackingContext,
     PopStackingContext,
@@ -404,6 +444,10 @@ using Command = Variant<
     DrawTriangleWave,
     AddRoundedRectClip,
     AddMask,
-    PaintNestedDisplayList>;
+    PaintNestedDisplayList,
+    PaintScrollBar,
+    ApplyOpacity,
+    ApplyTransform,
+    ApplyMaskBitmap>;
 
 }

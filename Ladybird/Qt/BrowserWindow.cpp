@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022-2023, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2022, Matthew Costa <ucosty@gmail.com>
  * Copyright (c) 2022, Filiph Sandström <filiph.sandstrom@filfatstudios.com>
  * Copyright (c) 2023, Linus Groh <linusg@serenityos.org>
@@ -72,10 +72,9 @@ public:
     }
 };
 
-BrowserWindow::BrowserWindow(Vector<URL::URL> const& initial_urls, WebView::CookieJar& cookie_jar, IsPopupWindow is_popup_window, Tab* parent_tab, Optional<u64> page_index)
+BrowserWindow::BrowserWindow(Vector<URL::URL> const& initial_urls, IsPopupWindow is_popup_window, Tab* parent_tab, Optional<u64> page_index)
     : m_tabs_container(new TabWidget(this))
     , m_new_tab_button_toolbar(new QToolBar("New Tab", m_tabs_container))
-    , m_cookie_jar(cookie_jar)
     , m_is_popup_window(is_popup_window)
 {
     setWindowIcon(app_icon());
@@ -101,6 +100,12 @@ BrowserWindow::BrowserWindow(Vector<URL::URL> const& initial_urls, WebView::Cook
     QObject::connect(Settings::the(), &Settings::enable_do_not_track_changed, this, [this](bool enable) {
         for_each_tab([enable](auto& tab) {
             tab.set_enable_do_not_track(enable);
+        });
+    });
+
+    QObject::connect(Settings::the(), &Settings::enable_autoplay_changed, this, [this](bool enable) {
+        for_each_tab([enable](auto& tab) {
+            tab.set_enable_autoplay(enable);
         });
     });
 
@@ -421,8 +426,8 @@ BrowserWindow::BrowserWindow(Vector<URL::URL> const& initial_urls, WebView::Cook
     auto* dump_cookies_action = new QAction("Dump C&ookies", this);
     dump_cookies_action->setIcon(load_icon_from_uri("resource://icons/browser/cookie.png"sv));
     debug_menu->addAction(dump_cookies_action);
-    QObject::connect(dump_cookies_action, &QAction::triggered, this, [this] {
-        m_cookie_jar.dump_cookies();
+    QObject::connect(dump_cookies_action, &QAction::triggered, this, [] {
+        WebView::Application::cookie_jar().dump_cookies();
     });
 
     auto* dump_local_storage_action = new QAction("Dump Loc&al Storage", this);
@@ -432,15 +437,11 @@ BrowserWindow::BrowserWindow(Vector<URL::URL> const& initial_urls, WebView::Cook
         debug_request("dump-local-storage");
     });
 
-    auto* dump_connection_info = new QAction("Dump Co&nnection Info", this);
-    dump_connection_info->setIcon(load_icon_from_uri("resource://icons/16x16/network.png"sv));
-    debug_menu->addAction(dump_connection_info);
-    QObject::connect(dump_connection_info, &QAction::triggered, this, &BrowserWindow::dump_connection_info);
-
     debug_menu->addSeparator();
 
     m_show_line_box_borders_action = new QAction("Show Line Box Borders", this);
     m_show_line_box_borders_action->setCheckable(true);
+    m_show_line_box_borders_action->setIcon(load_icon_from_uri("resource://icons/16x16/box.png"sv));
     debug_menu->addAction(m_show_line_box_borders_action);
     QObject::connect(m_show_line_box_borders_action, &QAction::triggered, this, [this] {
         bool state = m_show_line_box_borders_action->isChecked();
@@ -497,11 +498,15 @@ BrowserWindow::BrowserWindow(Vector<URL::URL> const& initial_urls, WebView::Cook
         return action;
     };
 
-    set_user_agent_string(Web::default_user_agent);
+    auto const& user_agent_preset = WebView::Application::web_content_options().user_agent_preset;
+    set_user_agent_string(user_agent_preset.has_value() ? *WebView::user_agents.get(*user_agent_preset) : Web::default_user_agent);
+
     auto* disable_spoofing = add_user_agent("Disabled"sv, Web::default_user_agent);
-    disable_spoofing->setChecked(true);
-    for (auto const& user_agent : WebView::user_agents)
-        add_user_agent(user_agent.key, user_agent.value.to_byte_string());
+    disable_spoofing->setChecked(!user_agent_preset.has_value());
+    for (auto const& user_agent : WebView::user_agents) {
+        auto* spoofed_user_agent = add_user_agent(user_agent.key, user_agent.value.to_byte_string());
+        spoofed_user_agent->setChecked(user_agent.key == user_agent_preset);
+    }
 
     auto* custom_user_agent_action = new QAction("Custom...", this);
     custom_user_agent_action->setCheckable(true);
@@ -548,7 +553,7 @@ BrowserWindow::BrowserWindow(Vector<URL::URL> const& initial_urls, WebView::Cook
 
     m_enable_scripting_action = new QAction("Enable Scripting", this);
     m_enable_scripting_action->setCheckable(true);
-    m_enable_scripting_action->setChecked(true);
+    m_enable_scripting_action->setChecked(WebView::Application::chrome_options().disable_scripting == WebView::DisableScripting::No);
     debug_menu->addAction(m_enable_scripting_action);
     QObject::connect(m_enable_scripting_action, &QAction::triggered, this, [this] {
         bool state = m_enable_scripting_action->isChecked();
@@ -601,8 +606,8 @@ BrowserWindow::BrowserWindow(Vector<URL::URL> const& initial_urls, WebView::Cook
         tab.set_url_is_hidden(true);
         tab.focus_location_editor();
     });
-    QObject::connect(m_new_window_action, &QAction::triggered, this, [this] {
-        (void)static_cast<Ladybird::Application*>(QApplication::instance())->new_window({}, m_cookie_jar);
+    QObject::connect(m_new_window_action, &QAction::triggered, this, [] {
+        (void)static_cast<Ladybird::Application*>(QApplication::instance())->new_window({});
     });
     QObject::connect(open_file_action, &QAction::triggered, this, &BrowserWindow::open_file);
     QObject::connect(settings_action, &QAction::triggered, this, [this] {
@@ -774,7 +779,7 @@ void BrowserWindow::initialize_tab(Tab* tab)
 
     tab->view().on_new_web_view = [this, tab](auto activate_tab, Web::HTML::WebViewHints hints, Optional<u64> page_index) {
         if (hints.popup) {
-            auto& window = static_cast<Ladybird::Application*>(QApplication::instance())->new_window({}, m_cookie_jar, IsPopupWindow::Yes, tab, AK::move(page_index));
+            auto& window = static_cast<Ladybird::Application*>(QApplication::instance())->new_window({}, IsPopupWindow::Yes, tab, AK::move(page_index));
             window.set_window_rect(hints.screen_x, hints.screen_y, hints.width, hints.height);
             return window.current_tab()->view().handle();
         }
@@ -803,26 +808,6 @@ void BrowserWindow::initialize_tab(Tab* tab)
         (void)modifiers;
     };
 
-    tab->view().on_get_all_cookies = [this](auto const& url) {
-        return m_cookie_jar.get_all_cookies(url);
-    };
-
-    tab->view().on_get_named_cookie = [this](auto const& url, auto const& name) {
-        return m_cookie_jar.get_named_cookie(url, name);
-    };
-
-    tab->view().on_get_cookie = [this](auto& url, auto source) {
-        return m_cookie_jar.get_cookie(url, source);
-    };
-
-    tab->view().on_set_cookie = [this](auto& url, auto& cookie, auto source) {
-        m_cookie_jar.set_cookie(url, cookie, source);
-    };
-
-    tab->view().on_update_cookie = [this](auto const& cookie) {
-        m_cookie_jar.update_cookie(cookie);
-    };
-
     m_tabs_container->setTabIcon(m_tabs_container->indexOf(tab), tab->favicon());
     create_close_button_for_tab(tab);
 
@@ -840,6 +825,7 @@ void BrowserWindow::initialize_tab(Tab* tab)
     tab->set_preferred_languages(preferred_languages);
     tab->set_navigator_compatibility_mode(navigator_compatibility_mode());
     tab->set_enable_do_not_track(Settings::the()->enable_do_not_track());
+    tab->set_enable_autoplay(WebView::Application::web_content_options().enable_autoplay == WebView::EnableAutoplay::Yes || Settings::the()->enable_autoplay());
     tab->view().set_preferred_color_scheme(m_preferred_color_scheme);
 }
 
@@ -1182,7 +1168,7 @@ void BrowserWindow::resizeEvent(QResizeEvent* event)
     QWidget::resizeEvent(event);
 
     for_each_tab([&](auto& tab) {
-        tab.view().set_window_size({ frameSize().width() * m_device_pixel_ratio, frameSize().height() * m_device_pixel_ratio });
+        tab.view().set_window_size({ width(), height() });
     });
 }
 
@@ -1191,7 +1177,7 @@ void BrowserWindow::moveEvent(QMoveEvent* event)
     QWidget::moveEvent(event);
 
     for_each_tab([&](auto& tab) {
-        tab.view().set_window_position({ event->pos().x() * m_device_pixel_ratio, event->pos().y() * m_device_pixel_ratio });
+        tab.view().set_window_position({ x(), y() });
     });
 }
 
@@ -1234,12 +1220,6 @@ void BrowserWindow::closeEvent(QCloseEvent* event)
     QObject::deleteLater();
 
     QMainWindow::closeEvent(event);
-}
-
-void BrowserWindow::dump_connection_info()
-{
-    if (auto& application = static_cast<Application&>(WebView::Application::the()); application.request_server_client)
-        application.request_server_client->dump_connection_info();
 }
 
 }

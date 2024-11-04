@@ -58,13 +58,20 @@ else()
 endif()
 
 find_package(simdutf REQUIRED)
+swizzle_target_properties_for_swift(simdutf::simdutf)
 target_link_libraries(AK PRIVATE simdutf::simdutf)
 
 if (ENABLE_SWIFT)
-    generate_clang_module_map(
-       AK
+    generate_clang_module_map(AK
        GENERATED_FILES
         "${CMAKE_CURRENT_BINARY_DIR}/Backtrace.h"
         "${CMAKE_CURRENT_BINARY_DIR}/Debug.h"
     )
+    target_sources(AK PRIVATE AK+Swift.swift)
+    add_swift_target_properties(AK)
+endif()
+
+if (WIN32)
+    # FIXME: Windows on ARM
+    target_link_libraries(AK PRIVATE clang_rt.builtins-x86_64.lib)
 endif()

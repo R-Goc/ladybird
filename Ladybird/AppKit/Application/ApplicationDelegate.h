@@ -13,7 +13,7 @@
 #include <LibWeb/CSS/PreferredContrast.h>
 #include <LibWeb/CSS/PreferredMotion.h>
 #include <LibWeb/HTML/ActivateTab.h>
-#include <LibWebView/CookieJar.h>
+#include <LibWebView/Forward.h>
 
 #import <Cocoa/Cocoa.h>
 
@@ -22,7 +22,7 @@
 
 @interface ApplicationDelegate : NSObject <NSApplicationDelegate>
 
-- (nullable instancetype)initWithCookieJar:(NonnullOwnPtr<WebView::CookieJar>)cookie_jar;
+- (nullable instancetype)init;
 
 - (nonnull TabController*)createNewTab:(Optional<URL::URL> const&)url
                                fromTab:(nullable Tab*)tab
@@ -33,12 +33,16 @@
                                fromTab:(nullable Tab*)tab
                            activateTab:(Web::HTML::ActivateTab)activate_tab;
 
+- (nonnull TabController*)createChildTab:(Optional<URL::URL> const&)url
+                                 fromTab:(nonnull Tab*)tab
+                             activateTab:(Web::HTML::ActivateTab)activate_tab
+                               pageIndex:(u64)page_index;
+
 - (void)setActiveTab:(nonnull Tab*)tab;
 - (nullable Tab*)activeTab;
 
 - (void)removeTab:(nonnull TabController*)controller;
 
-- (WebView::CookieJar&)cookieJar;
 - (Web::CSS::PreferredColorScheme)preferredColorScheme;
 - (Web::CSS::PreferredContrast)preferredContrast;
 - (Web::CSS::PreferredMotion)preferredMotion;

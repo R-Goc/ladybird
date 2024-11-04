@@ -4,7 +4,7 @@ on: [push]
 
 env:
   LADYBIRD_SOURCE_DIR: ${{ github.workspace }}
-  SERENITY_CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
   VCPKG_ROOT:  ${{ github.workspace }}/Toolchain/Tarballs/vcpkg
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
 
@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04]
+        os: [ubuntu-24.04]
         package_type: [Linux-x86_64]
         os_name: [Linux]
         include:
@@ -24,7 +24,7 @@ jobs:
             os_name: macOS
 
     concurrency:
-      group: ${{ github.workflow }}-${{ matrix.os }}
+      group: ${{ github.workflow }}-${{ matrix.os_name }}
       cancel-in-progress: true
 
     steps:
@@ -44,7 +44,7 @@ jobs:
           os: ${{ matrix.os_name }}
           arch: 'Lagom'
           cache_key_extra: 'LibJS Artifacts'
-          serenity_ccache_path: ${{ env.SERENITY_CCACHE_DIR }}
+          ccache_path: ${{ env.CCACHE_DIR }}
           download_cache_path: ${{ github.workspace }}/Build/caches
 
       - name: Create build directory Ubuntu
@@ -54,9 +54,7 @@ jobs:
             -DCMAKE_C_COMPILER=gcc-13 \
             -DCMAKE_CXX_COMPILER=g++-13 \
             -DENABLE_GUI_TARGETS=OFF
-        if: ${{ matrix.os == 'ubuntu-22.04' }}
-        env:
-          CCACHE_DIR: ${{ env.SERENITY_CCACHE_DIR }}
+        if: ${{ matrix.os_name == 'Linux' }}
 
       # FIXME: Add the following flag back when vcpkg supports Universal binaries:
       #        -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
@@ -68,24 +66,20 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
             -DENABLE_GUI_TARGETS=OFF
-        if: ${{ matrix.os == 'macos-14' }}
-        env:
-          CCACHE_DIR: ${{ env.SERENITY_CCACHE_DIR }}
+        if: ${{ matrix.os_name == 'macOS' }}
 
       - name: Build and package js
         working-directory: Build
         run: |
           ninja js
           cpack
-        env:
-          CCACHE_DIR: ${{ env.SERENITY_CCACHE_DIR }}
 
       - name: Save Caches
         uses: ./.github/actions/cache-save
         with:
           arch: 'Lagom'
-          serenity_ccache_path: ${{ env.SERENITY_CCACHE_DIR }}
-          serenity_ccache_primary_key: ${{ steps.cache-restore.outputs.serenity_ccache_primary_key }}
+          ccache_path: ${{ env.CCACHE_DIR }}
+          ccache_primary_key: ${{ steps.cache-restore.outputs.ccache_primary_key }}
 
       - name: Upload js package
         uses: actions/upload-artifact@v4

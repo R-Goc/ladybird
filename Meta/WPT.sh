@@ -4,20 +4,40 @@ set -e
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-LADYBIRD_SOURCE_DIR="$(realpath "${DIR}"/..)"
+# shellcheck source=/dev/null
+. "${DIR}/shell_include.sh"
+
+ensure_ladybird_source_dir
+
 WPT_SOURCE_DIR=${WPT_SOURCE_DIR:-"${LADYBIRD_SOURCE_DIR}/Tests/LibWeb/WPT/wpt"}
 WPT_REPOSITORY_URL=${WPT_REPOSITORY_URL:-"https://github.com/web-platform-tests/wpt.git"}
 
-LADYBIRD_BINARY=${LADYBIRD_BINARY:-"${LADYBIRD_SOURCE_DIR}/Build/ladybird/bin/Ladybird"}
-WEBDRIVER_BINARY=${WEBDRIVER_BINARY:-"${LADYBIRD_SOURCE_DIR}/Build/ladybird/bin/WebDriver"}
+BUILD_PRESET=${BUILD_PRESET:-default}
 
-WPT_PROCESSES=${WPT_PROCESSES:-$(nproc)}
+BUILD_DIR=$(get_build_dir "$BUILD_PRESET")
+
+default_binary_path() {
+    if [ "$(uname -s)" = "Darwin" ]; then
+        echo "${BUILD_DIR}/bin/Ladybird.app/Contents/MacOS"
+    else
+        echo "${BUILD_DIR}/bin"
+    fi
+}
+
+ladybird_git_hash() {
+    pushd "${LADYBIRD_SOURCE_DIR}" > /dev/null
+        git rev-parse --short HEAD
+    popd > /dev/null
+}
+
+LADYBIRD_BINARY=${LADYBIRD_BINARY:-"$(default_binary_path)/Ladybird"}
+WEBDRIVER_BINARY=${WEBDRIVER_BINARY:-"$(default_binary_path)/WebDriver"}
+WPT_PROCESSES=${WPT_PROCESSES:-$(get_number_of_processing_units)}
 WPT_CERTIFICATES=(
   "tools/certs/cacert.pem"
-  "${LADYBIRD_SOURCE_DIR}/Build/ladybird/Lagom/cacert.pem"
+  "${BUILD_DIR}/Lagom/cacert.pem"
 )
-WPT_ARGS=( "--binary=${LADYBIRD_BINARY}"
-           "--webdriver-binary=${WEBDRIVER_BINARY}"
+WPT_ARGS=( "--webdriver-binary=${WEBDRIVER_BINARY}"
            "--install-webdriver"
             "--processes=${WPT_PROCESSES}"
            "--webdriver-arg=--force-cpu-painting"
@@ -45,6 +65,8 @@ print_help() {
           Run all of the Web Platform Tests.
       $NAME run --log expectations.log css dom
           Run the Web Platform Tests in the 'css' and 'dom' directories and save the output to expectations.log.
+      $NAME run --log-wptreport expectations.json --log-wptscreenshot expectations.db css dom
+          Run the Web Platform Tests in the 'css' and 'dom' directories; save the output in wptreport format to expectations.json and save screenshots to expectations.db.
       $NAME compare expectations.log
           Run all of the Web Platform Tests comparing the results to the expectations in before.log.
       $NAME compare --log results.log expectations.log css/CSS2
@@ -65,18 +87,47 @@ if [ "$CMD" = "--help" ] || [ "$CMD" = "help" ]; then
     exit 0
 fi
 
+set_logging_flags()
+{
+    [ -n "${1}" ] || usage;
+    [ -n "${2}" ] || usage;
+
+    log_type="${1}"
+    log_name="$(absolutize_path "${2}")"
+
+    WPT_ARGS+=( "${log_type}=${log_name}" )
+}
+
 ARG=$1
-if [ "$ARG" = "--log" ]; then
+while [[ "$ARG" =~ ^(--headless|(--log(-(raw|unittest|xunit|html|mach|tbpl|grouped|chromium|wptreport|wptscreenshot))?))$ ]]; do
+    case "$ARG" in
+        --headless)
+            LADYBIRD_BINARY="$(default_binary_path)/headless-browser"
+            WPT_ARGS+=( "--webdriver-arg=--headless" )
+            ;;
+        --log)
+            set_logging_flags "--log-raw" "${2}"
+            shift
+            ;;
+        *)
+            set_logging_flags "${ARG}" "${2}"
+            shift
+            ;;
+    esac
+
     shift
-    LOG_NAME="$(pwd -P)/$1"
-    [ -n "$LOG_NAME" ] || usage;
-    shift
-    WPT_ARGS+=( "--log-raw=${LOG_NAME}" )
-fi
+    ARG=$1
+done
+
+WPT_ARGS+=( "--binary=${LADYBIRD_BINARY}" )
 TEST_LIST=( "$@" )
 
-# shellcheck source=/dev/null
-. "${DIR}/shell_include.sh"
+for i in "${!TEST_LIST[@]}"; do
+    item="${TEST_LIST[i]}"
+    item="${item#"$WPT_SOURCE_DIR"/}"
+    item="${item#*Tests/LibWeb/WPT/wpt/}"
+    TEST_LIST[i]="$item"
+done
 
 exit_if_running_as_root "Do not run WPT.sh as root"
 
@@ -85,6 +136,12 @@ ensure_wpt_repository() {
     pushd "${WPT_SOURCE_DIR}" > /dev/null
         if [ ! -d .git ]; then
             git clone --depth 1 "${WPT_REPOSITORY_URL}" "${WPT_SOURCE_DIR}"
+        fi
+
+        # Update hosts file if needed
+        if [ "$(comm -13 <(sort -u /etc/hosts) <(./wpt make-hosts-file | sort -u) | wc -l)" -gt 0 ]; then
+            echo "Enter superuser password to append wpt hosts to /etc/hosts"
+            ./wpt make-hosts-file | sudo tee -a /etc/hosts
         fi
     popd > /dev/null
 }
@@ -109,7 +166,8 @@ execute_wpt() {
             fi
             WPT_ARGS+=( "--webdriver-arg=--certificate=${certificate_path}" )
         done
-        QT_QPA_PLATFORM="minimal" ./wpt run "${WPT_ARGS[@]}" ladybird "${TEST_LIST[@]}"
+        echo QT_QPA_PLATFORM="offscreen" LADYBIRD_GIT_VERSION="$(ladybird_git_hash)" ./wpt run "${WPT_ARGS[@]}" ladybird "${TEST_LIST[@]}"
+        QT_QPA_PLATFORM="offscreen" LADYBIRD_GIT_VERSION="$(ladybird_git_hash)" ./wpt run "${WPT_ARGS[@]}" ladybird "${TEST_LIST[@]}"
     popd > /dev/null
 }
 
@@ -117,6 +175,15 @@ run_wpt() {
     ensure_wpt_repository
     build_ladybird_and_webdriver
     execute_wpt
+}
+
+serve_wpt()
+{
+    ensure_wpt_repository
+
+    pushd "${WPT_SOURCE_DIR}" > /dev/null
+        ./wpt serve
+    popd > /dev/null
 }
 
 compare_wpt() {
@@ -131,13 +198,16 @@ compare_wpt() {
     rm -rf "${METADATA_DIR}"
 }
 
-if [[ "$CMD" =~ ^(update|run|compare)$ ]]; then
+if [[ "$CMD" =~ ^(update|run|serve|compare)$ ]]; then
     case "$CMD" in
         update)
             update_wpt
             ;;
         run)
             run_wpt
+            ;;
+        serve)
+            serve_wpt
             ;;
         compare)
             INPUT_LOG_NAME="$(pwd -P)/$1"

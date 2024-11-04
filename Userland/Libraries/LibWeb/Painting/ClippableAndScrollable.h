@@ -20,8 +20,18 @@ public:
 
     [[nodiscard]] RefPtr<ScrollFrame const> enclosing_scroll_frame() const { return m_enclosing_scroll_frame; }
     [[nodiscard]] Optional<int> scroll_frame_id() const;
-    [[nodiscard]] CSSPixelPoint enclosing_scroll_frame_offset() const;
+    [[nodiscard]] CSSPixelPoint cumulative_offset_of_enclosing_scroll_frame() const;
     [[nodiscard]] Optional<CSSPixelRect> clip_rect_for_hit_testing() const;
+
+    [[nodiscard]] RefPtr<ScrollFrame const> own_scroll_frame() const { return m_own_scroll_frame; }
+    [[nodiscard]] Optional<int> own_scroll_frame_id() const;
+    [[nodiscard]] CSSPixelPoint own_scroll_frame_offset() const
+    {
+        if (m_own_scroll_frame)
+            return m_own_scroll_frame->own_offset();
+        return {};
+    }
+    void set_own_scroll_frame(RefPtr<ScrollFrame> scroll_frame) { m_own_scroll_frame = scroll_frame; }
 
     void apply_clip(PaintContext&) const;
     void restore_clip(PaintContext&) const;
@@ -31,6 +41,7 @@ public:
 
 private:
     RefPtr<ScrollFrame const> m_enclosing_scroll_frame;
+    RefPtr<ScrollFrame const> m_own_scroll_frame;
     RefPtr<ClipFrame const> m_enclosing_clip_frame;
 
     Gfx::AffineTransform m_combined_css_transform;

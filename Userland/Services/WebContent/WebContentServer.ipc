@@ -5,11 +5,13 @@
 #include <LibWeb/CSS/PreferredContrast.h>
 #include <LibWeb/CSS/PreferredMotion.h>
 #include <LibWeb/CSS/Selector.h>
+#include <LibWeb/CSS/StyleSheetIdentifier.h>
 #include <LibWeb/HTML/ColorPickerUpdateState.h>
 #include <LibWeb/HTML/SelectedFile.h>
 #include <LibWeb/Page/InputEvent.h>
 #include <LibWeb/WebDriver/ExecuteScript.h>
 #include <LibWebView/Attribute.h>
+#include <LibWebView/PageInfo.h>
 
 endpoint WebContentServer
 {
@@ -35,36 +37,35 @@ endpoint WebContentServer
 
     key_event(u64 page_id, Web::KeyEvent event) =|
     mouse_event(u64 page_id, Web::MouseEvent event) =|
+    drag_event(u64 page_id, Web::DragEvent event) =|
 
     debug_request(u64 page_id, ByteString request, ByteString argument) =|
     get_source(u64 page_id) =|
     inspect_dom_tree(u64 page_id) =|
-    inspect_dom_node(u64 page_id, i32 node_id, Optional<Web::CSS::Selector::PseudoElement::Type> pseudo_element) =|
+    inspect_dom_node(u64 page_id, Web::UniqueNodeID node_id, Optional<Web::CSS::Selector::PseudoElement::Type> pseudo_element) =|
     inspect_accessibility_tree(u64 page_id) =|
     get_hovered_node_id(u64 page_id) =|
     js_console_input(u64 page_id, ByteString js_source) =|
     js_console_request_messages(u64 page_id, i32 start_index) =|
+    list_style_sheets(u64 page_id) =|
+    request_style_sheet_source(u64 page_id, Web::CSS::StyleSheetIdentifier identifier) =|
 
-    set_dom_node_text(u64 page_id, i32 node_id, String text) =|
-    set_dom_node_tag(u64 page_id, i32 node_id, String name) =|
-    add_dom_node_attributes(u64 page_id, i32 node_id, Vector<WebView::Attribute> attributes) =|
-    replace_dom_node_attribute(u64 page_id, i32 node_id, String name, Vector<WebView::Attribute> replacement_attributes) =|
-    create_child_element(u64 page_id, i32 node_id) =|
-    create_child_text_node(u64 page_id, i32 node_id) =|
-    clone_dom_node(u64 page_id, i32 node_id) =|
-    remove_dom_node(u64 page_id, i32 node_id) =|
-    get_dom_node_html(u64 page_id, i32 node_id) =|
+    set_dom_node_text(u64 page_id, Web::UniqueNodeID node_id, String text) =|
+    set_dom_node_tag(u64 page_id, Web::UniqueNodeID node_id, String name) =|
+    add_dom_node_attributes(u64 page_id, Web::UniqueNodeID node_id, Vector<WebView::Attribute> attributes) =|
+    replace_dom_node_attribute(u64 page_id, Web::UniqueNodeID node_id, String name, Vector<WebView::Attribute> replacement_attributes) =|
+    create_child_element(u64 page_id, Web::UniqueNodeID node_id) =|
+    create_child_text_node(u64 page_id, Web::UniqueNodeID node_id) =|
+    clone_dom_node(u64 page_id, Web::UniqueNodeID node_id) =|
+    remove_dom_node(u64 page_id, Web::UniqueNodeID node_id) =|
+    get_dom_node_html(u64 page_id, Web::UniqueNodeID node_id) =|
 
     take_document_screenshot(u64 page_id) =|
-    take_dom_node_screenshot(u64 page_id, i32 node_id) =|
+    take_dom_node_screenshot(u64 page_id, Web::UniqueNodeID node_id) =|
 
-    dump_gc_graph(u64 page_id) => (String json)
+    request_internal_page_info(u64 page_id, WebView::PageInfoType type) =|
 
     run_javascript(u64 page_id, ByteString js_source) =|
-
-    dump_layout_tree(u64 page_id) => (ByteString dump)
-    dump_paint_tree(u64 page_id) => (ByteString dump)
-    dump_text(u64 page_id) => (ByteString dump)
 
     get_selected_text(u64 page_id) => (ByteString selection)
     select_all(u64 page_id) =|
@@ -89,6 +90,7 @@ endpoint WebContentServer
 
     set_window_position(u64 page_id, Web::DevicePixelPoint position) =|
     set_window_size(u64 page_id, Web::DevicePixelSize size) =|
+    did_update_window_rect(u64 page_id) =|
 
     get_local_storage_entries(u64 page_id) => (OrderedHashMap<String, String> entries)
     get_session_storage_entries(u64 page_id) => (OrderedHashMap<String, String> entries)
@@ -114,4 +116,6 @@ endpoint WebContentServer
     set_user_style(u64 page_id, String source) =|
 
     enable_inspector_prototype(u64 page_id) =|
+
+    system_time_zone_changed() =|
 }

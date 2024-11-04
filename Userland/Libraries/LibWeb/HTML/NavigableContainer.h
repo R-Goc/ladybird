@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -23,19 +23,6 @@ public:
 
     JS::GCPtr<Navigable> content_navigable() { return m_content_navigable; }
     JS::GCPtr<Navigable const> content_navigable() const { return m_content_navigable.ptr(); }
-
-    BrowsingContext* nested_browsing_context()
-    {
-        if (m_content_navigable)
-            return m_content_navigable->active_browsing_context();
-        return nullptr;
-    }
-    BrowsingContext const* nested_browsing_context() const
-    {
-        if (m_content_navigable)
-            return m_content_navigable->active_browsing_context();
-        return nullptr;
-    }
 
     const DOM::Document* content_document() const;
     DOM::Document const* content_document_without_origin_check() const;
@@ -64,7 +51,7 @@ protected:
     // https://html.spec.whatwg.org/multipage/iframe-embed-object.html#navigate-an-iframe-or-frame
     void navigate_an_iframe_or_frame(URL::URL url, ReferrerPolicy::ReferrerPolicy referrer_policy, Optional<String> srcdoc_string = {});
 
-    WebIDL::ExceptionOr<void> create_new_child_navigable(JS::SafeFunction<void()> afterSessionHistoryUpdate = {});
+    WebIDL::ExceptionOr<void> create_new_child_navigable(JS::GCPtr<JS::HeapFunction<void()>> after_session_history_update = {});
 
     // https://html.spec.whatwg.org/multipage/document-sequences.html#content-navigable
     JS::GCPtr<Navigable> m_content_navigable { nullptr };

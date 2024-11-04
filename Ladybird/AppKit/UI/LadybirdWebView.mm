@@ -10,6 +10,7 @@
 #include <LibGfx/ShareableBitmap.h>
 #include <LibURL/URL.h>
 #include <LibWeb/HTML/SelectedFile.h>
+#include <LibWebView/Application.h>
 #include <LibWebView/SearchEngine.h>
 #include <LibWebView/SourceHighlighter.h>
 #include <LibWebView/URL.h>
@@ -48,7 +49,7 @@ struct HideCursor {
     }
 };
 
-@interface LadybirdWebView ()
+@interface LadybirdWebView () <NSDraggingDestination>
 {
     OwnPtr<Ladybird::WebViewBridge> m_web_view_bridge;
 
@@ -57,6 +58,11 @@ struct HideCursor {
     Optional<String> m_context_menu_search_text;
 
     Optional<HideCursor> m_hidden_cursor;
+
+    // We have to send key events for modifer keys, but AppKit does not generate key down/up events when only a modifier
+    // key is pressed. Instead, we only receive an event that the modifier flags have changed, and we must determine for
+    // ourselves whether the modifier key was pressed or released.
+    NSEventModifierFlags m_modifier_flags;
 }
 
 @property (nonatomic, weak) id<LadybirdWebViewObserver> observer;
@@ -87,6 +93,26 @@ struct HideCursor {
 
 - (instancetype)init:(id<LadybirdWebViewObserver>)observer
 {
+    if (self = [self initWebView:observer]) {
+        m_web_view_bridge->initialize_client();
+    }
+
+    return self;
+}
+
+- (instancetype)initAsChild:(id<LadybirdWebViewObserver>)observer
+                     parent:(LadybirdWebView*)parent
+                  pageIndex:(u64)page_index
+{
+    if (self = [self initWebView:observer]) {
+        m_web_view_bridge->initialize_client_as_child(*parent->m_web_view_bridge, page_index);
+    }
+
+    return self;
+}
+
+- (instancetype)initWebView:(id<LadybirdWebViewObserver>)observer
+{
     if (self = [super init]) {
         self.observer = observer;
 
@@ -107,13 +133,15 @@ struct HideCursor {
         m_web_view_bridge = MUST(Ladybird::WebViewBridge::create(move(screen_rects), device_pixel_ratio, [delegate preferredColorScheme], [delegate preferredContrast], [delegate preferredMotion]));
         [self setWebViewCallbacks];
 
-        m_web_view_bridge->initialize_client();
-
         auto* area = [[NSTrackingArea alloc] initWithRect:[self bounds]
                                                   options:NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect | NSTrackingMouseMoved
                                                     owner:self
                                                  userInfo:nil];
         [self addTrackingArea:area];
+
+        [self registerForDraggedTypes:[NSArray arrayWithObjects:NSPasteboardTypeFileURL, nil]];
+
+        m_modifier_flags = 0;
     }
 
     return self;
@@ -154,6 +182,16 @@ struct HideCursor {
 - (String const&)handle
 {
     return m_web_view_bridge->handle();
+}
+
+- (void)setWindowPosition:(Gfx::IntPoint)position
+{
+    m_web_view_bridge->set_window_position(Ladybird::compute_origin_relative_to_window([self window], position));
+}
+
+- (void)setWindowSize:(Gfx::IntSize)size
+{
+    m_web_view_bridge->set_window_size(size);
 }
 
 - (void)handleResize
@@ -236,6 +274,11 @@ struct HideCursor {
     m_web_view_bridge->debug_request(request, argument);
 }
 
+- (void)setEnableAutoplay:(BOOL)enabled
+{
+    m_web_view_bridge->set_enable_autoplay(enabled);
+}
+
 - (void)viewSource
 {
     m_web_view_bridge->get_source();
@@ -313,13 +356,19 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
         [self setNeedsDisplay:YES];
     };
 
-    m_web_view_bridge->on_new_web_view = [weak_self](auto activate_tab, auto, auto) {
+    m_web_view_bridge->on_new_web_view = [weak_self](auto activate_tab, auto, auto page_index) {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
             return String {};
         }
-        // FIXME: Create a child tab that re-uses the ConnectionFromClient of the parent tab
-        return [self.observer onCreateNewTab:"about:blank"sv activateTab:activate_tab];
+
+        if (page_index.has_value()) {
+            return [self.observer onCreateChildTab:{}
+                                       activateTab:activate_tab
+                                         pageIndex:*page_index];
+        }
+
+        return [self.observer onCreateNewTab:{} activateTab:activate_tab];
     };
 
     m_web_view_bridge->on_request_web_content = [weak_self]() {
@@ -417,6 +466,25 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
         self.event_being_redispatched = nil;
     };
 
+    m_web_view_bridge->on_finish_handling_drag_event = [weak_self](auto const& event) {
+        LadybirdWebView* self = weak_self;
+        if (self == nil) {
+            return;
+        }
+
+        if (event.type != Web::DragEvent::Type::Drop) {
+            return;
+        }
+
+        if (auto urls = Ladybird::drag_event_url_list(event); !urls.is_empty()) {
+            [self.observer loadURL:urls[0]];
+
+            for (size_t i = 1; i < urls.size(); ++i) {
+                [self.observer onCreateNewTab:urls[i] activateTab:Web::HTML::ActivateTab::No];
+            }
+        }
+    };
+
     m_web_view_bridge->on_cursor_change = [weak_self](auto cursor) {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
@@ -506,30 +574,6 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
             return;
         }
         [self updateViewportRect:Ladybird::WebViewBridge::ForResize::Yes];
-    };
-
-    m_web_view_bridge->on_navigate_back = [weak_self]() {
-        LadybirdWebView* self = weak_self;
-        if (self == nil) {
-            return;
-        }
-        [self navigateBack];
-    };
-
-    m_web_view_bridge->on_navigate_forward = [weak_self]() {
-        LadybirdWebView* self = weak_self;
-        if (self == nil) {
-            return;
-        }
-        [self navigateForward];
-    };
-
-    m_web_view_bridge->on_refresh = [weak_self]() {
-        LadybirdWebView* self = weak_self;
-        if (self == nil) {
-            return;
-        }
-        [self reload];
     };
 
     m_web_view_bridge->on_request_tooltip_override = [weak_self](auto, auto const& tooltip) {
@@ -951,31 +995,6 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
         [NSMenu popUpContextMenu:self.select_dropdown withEvent:event forView:self];
     };
 
-    m_web_view_bridge->on_get_all_cookies = [](auto const& url) {
-        auto* delegate = (ApplicationDelegate*)[NSApp delegate];
-        return [delegate cookieJar].get_all_cookies(url);
-    };
-
-    m_web_view_bridge->on_get_named_cookie = [](auto const& url, auto const& name) {
-        auto* delegate = (ApplicationDelegate*)[NSApp delegate];
-        return [delegate cookieJar].get_named_cookie(url, name);
-    };
-
-    m_web_view_bridge->on_get_cookie = [](auto const& url, auto source) {
-        auto* delegate = (ApplicationDelegate*)[NSApp delegate];
-        return [delegate cookieJar].get_cookie(url, source);
-    };
-
-    m_web_view_bridge->on_set_cookie = [](auto const& url, auto const& cookie, auto source) {
-        auto* delegate = (ApplicationDelegate*)[NSApp delegate];
-        [delegate cookieJar].set_cookie(url, cookie, source);
-    };
-
-    m_web_view_bridge->on_update_cookie = [](auto const& cookie) {
-        auto* delegate = (ApplicationDelegate*)[NSApp delegate];
-        [delegate cookieJar].update_cookie(cookie);
-    };
-
     m_web_view_bridge->on_restore_window = [weak_self]() {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
@@ -985,69 +1004,71 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
         [[self window] orderFront:nil];
     };
 
-    m_web_view_bridge->on_reposition_window = [weak_self](auto const& position) {
+    m_web_view_bridge->on_reposition_window = [weak_self](auto position) {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
-            return Gfx::IntPoint {};
+            return;
         }
-        auto frame = [[self window] frame];
-        frame.origin = Ladybird::gfx_point_to_ns_point(position);
-        [[self window] setFrame:frame display:YES];
 
-        return Ladybird::ns_point_to_gfx_point([[self window] frame].origin);
+        position = Ladybird::compute_origin_relative_to_window([self window], position);
+        [[self window] setFrameOrigin:Ladybird::gfx_point_to_ns_point(position)];
+
+        m_web_view_bridge->did_update_window_rect();
     };
 
-    m_web_view_bridge->on_resize_window = [weak_self](auto const& size) {
+    m_web_view_bridge->on_resize_window = [weak_self](auto size) {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
-            return Gfx::IntSize {};
+            return;
         }
+
         auto frame = [[self window] frame];
         frame.size = Ladybird::gfx_size_to_ns_size(size);
         [[self window] setFrame:frame display:YES];
 
-        return Ladybird::ns_size_to_gfx_size([[self window] frame].size);
+        m_web_view_bridge->did_update_window_rect();
     };
 
     m_web_view_bridge->on_maximize_window = [weak_self]() {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
-            return Gfx::IntRect {};
+            return;
         }
-        auto frame = [[NSScreen mainScreen] frame];
+
+        auto frame = [[[self window] screen] frame];
         [[self window] setFrame:frame display:YES];
 
-        return Ladybird::ns_rect_to_gfx_rect([[self window] frame]);
+        m_web_view_bridge->did_update_window_rect();
     };
 
     m_web_view_bridge->on_minimize_window = [weak_self]() {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
-            return Gfx::IntRect {};
+            return;
         }
-        [[self window] setIsMiniaturized:YES];
 
-        return Ladybird::ns_rect_to_gfx_rect([[self window] frame]);
+        [[self window] setIsMiniaturized:YES];
     };
 
     m_web_view_bridge->on_fullscreen_window = [weak_self]() {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
-            return Gfx::IntRect {};
+            return;
         }
+
         if (([[self window] styleMask] & NSWindowStyleMaskFullScreen) == 0) {
             [[self window] toggleFullScreen:nil];
         }
 
-        return Ladybird::ns_rect_to_gfx_rect([[self window] frame]);
+        m_web_view_bridge->did_update_window_rect();
     };
 
-    m_web_view_bridge->on_received_source = [weak_self](auto const& url, auto const& source) {
+    m_web_view_bridge->on_received_source = [weak_self](auto const& url, auto const& base_url, auto const& source) {
         LadybirdWebView* self = weak_self;
         if (self == nil) {
             return;
         }
-        auto html = WebView::highlight_source(url, source);
+        auto html = WebView::highlight_source(url, base_url, source, Syntax::Language::HTML, WebView::HighlightOutputMode::FullDocument);
 
         [self.observer onCreateNewTab:html
                                   url:url
@@ -1180,6 +1201,9 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
                            }];
         })
         .when_rejected([self](auto const& error) {
+            if (error.is_errno() && error.code() == ECANCELED)
+                return;
+
             auto error_message = MUST(String::formatted("{}", error));
 
             auto* dialog = [[NSAlert alloc] init];
@@ -1502,6 +1526,8 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
     auto* provider = CGDataProviderCreateWithData(nil, bitmap.scanline_u8(0), bitmap.size_in_bytes(), nil);
     auto image_rect = CGRectMake(rect.origin.x * device_pixel_ratio, rect.origin.y * device_pixel_ratio, bitmap_size.width(), bitmap_size.height());
 
+    static auto color_space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+
     // Ideally, this would be NSBitmapImageRep, but the equivalent factory initWithBitmapDataPlanes: does
     // not seem to actually respect endianness. We need NSBitmapFormatThirtyTwoBitLittleEndian, but the
     // resulting image is always big endian. CGImageCreate actually does respect the endianness.
@@ -1511,7 +1537,7 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
         BITS_PER_COMPONENT,
         BITS_PER_PIXEL,
         bitmap.pitch(),
-        CGColorSpaceCreateDeviceRGB(),
+        color_space,
         kCGBitmapByteOrder32Little | kCGImageAlphaFirst,
         provider,
         nil,
@@ -1532,6 +1558,10 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
 {
     [super viewDidMoveToWindow];
     [self handleResize];
+
+    auto window = Ladybird::ns_rect_to_gfx_rect([[self window] frame]);
+    [self setWindowPosition:window.location()];
+    [self setWindowSize:window.size()];
 }
 
 - (void)viewDidEndLiveResize
@@ -1667,6 +1697,73 @@ static void copy_data_to_clipboard(StringView data, NSPasteboardType pasteboard_
 
     auto key_event = Ladybird::ns_event_to_key_event(Web::KeyEvent::Type::KeyUp, event);
     m_web_view_bridge->enqueue_input_event(move(key_event));
+}
+
+- (void)flagsChanged:(NSEvent*)event
+{
+    if (self.event_being_redispatched == event) {
+        return;
+    }
+
+    auto enqueue_event_if_needed = [&](auto flag) {
+        auto is_flag_set = [&](auto flags) { return (flags & flag) != 0; };
+        Web::KeyEvent::Type type;
+
+        if (is_flag_set(event.modifierFlags) && !is_flag_set(m_modifier_flags)) {
+            type = Web::KeyEvent::Type::KeyDown;
+        } else if (!is_flag_set(event.modifierFlags) && is_flag_set(m_modifier_flags)) {
+            type = Web::KeyEvent::Type::KeyUp;
+        } else {
+            return;
+        }
+
+        auto key_event = Ladybird::ns_event_to_key_event(type, event);
+        m_web_view_bridge->enqueue_input_event(move(key_event));
+    };
+
+    enqueue_event_if_needed(NSEventModifierFlagShift);
+    enqueue_event_if_needed(NSEventModifierFlagControl);
+    enqueue_event_if_needed(NSEventModifierFlagOption);
+    enqueue_event_if_needed(NSEventModifierFlagCommand);
+
+    m_modifier_flags = event.modifierFlags;
+}
+
+#pragma mark - NSDraggingDestination
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)event
+{
+    auto drag_event = Ladybird::ns_event_to_drag_event(Web::DragEvent::Type::DragStart, event, self);
+    m_web_view_bridge->enqueue_input_event(move(drag_event));
+
+    return NSDragOperationCopy;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)event
+{
+    auto drag_event = Ladybird::ns_event_to_drag_event(Web::DragEvent::Type::DragMove, event, self);
+    m_web_view_bridge->enqueue_input_event(move(drag_event));
+
+    return NSDragOperationCopy;
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)event
+{
+    auto drag_event = Ladybird::ns_event_to_drag_event(Web::DragEvent::Type::DragEnd, event, self);
+    m_web_view_bridge->enqueue_input_event(move(drag_event));
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)event
+{
+    auto drag_event = Ladybird::ns_event_to_drag_event(Web::DragEvent::Type::Drop, event, self);
+    m_web_view_bridge->enqueue_input_event(move(drag_event));
+
+    return YES;
+}
+
+- (BOOL)wantsPeriodicDraggingUpdates
+{
+    return NO;
 }
 
 @end

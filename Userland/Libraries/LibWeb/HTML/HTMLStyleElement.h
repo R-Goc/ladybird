@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, the SerenityOS developers.
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -31,6 +31,9 @@ public:
 
 private:
     HTMLStyleElement(DOM::Document&, DOM::QualifiedName);
+
+    // ^DOM::Node
+    virtual bool is_html_style_element() const override { return true; }
 
     virtual void initialize(JS::Realm&) override;
     virtual void visit_edges(Cell::Visitor&) override;

@@ -1,16 +1,18 @@
 /*
- * Copyright (c) 2023-2024, Tim Flynn <trflynn89@serenityos.org>
+ * Copyright (c) 2023-2024, Tim Flynn <trflynn89@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/String.h>
 #include <AK/StringBuilder.h>
+#include <LibUnicode/CharacterTypes.h>
 #include <LibUnicode/ICU.h>
 
 #include <unicode/bytestream.h>
 #include <unicode/casemap.h>
 #include <unicode/stringoptions.h>
+#include <unicode/translit.h>
 
 // This file contains definitions of AK::String methods which require UCD data.
 
@@ -85,6 +87,21 @@ ErrorOr<String> String::to_titlecase(Optional<StringView> const& locale, Trailin
     return builder.to_string_without_validation();
 }
 
+ErrorOr<String> String::to_fullwidth() const
+{
+    UErrorCode status = U_ZERO_ERROR;
+
+    auto const transliterator = adopt_own_if_nonnull(icu::Transliterator::createInstance("Halfwidth-Fullwidth", UTRANS_FORWARD, status));
+    if (Unicode::icu_failure(status)) {
+        return Error::from_string_literal("Unable to create transliterator");
+    }
+
+    auto icu_string = Unicode::icu_string(bytes_as_string_view());
+    transliterator->transliterate(icu_string);
+
+    return Unicode::icu_string_to_string(icu_string);
+}
+
 static ErrorOr<void> build_casefold_string(StringView string, StringBuilder& builder)
 {
     UErrorCode status = U_ZERO_ERROR;
@@ -137,6 +154,38 @@ Optional<size_t> String::find_byte_offset_ignoring_case(StringView needle, size_
         return *index + from_byte_offset;
 
     return {};
+}
+
+ErrorOr<String> String::trim_whitespace(TrimMode mode) const
+{
+    auto code_points = this->code_points();
+
+    Optional<size_t> start;
+    size_t length = 0;
+
+    for (auto it = code_points.begin(); it != code_points.end(); ++it) {
+        if (Unicode::code_point_has_white_space_property(*it))
+            continue;
+
+        auto offset = code_points.byte_offset_of(it);
+
+        if (!start.has_value())
+            start = offset;
+
+        length = offset + it.underlying_code_point_length_in_bytes();
+    }
+
+    if (mode == TrimMode::Right)
+        start = 0;
+    if (mode == TrimMode::Left)
+        length = bytes_as_string_view().length();
+
+    if (!start.has_value() || start == length)
+        return String {};
+    if (start == 0uz && length == bytes_as_string_view().length())
+        return *this;
+
+    return substring_from_byte_offset_with_shared_superstring(*start, length - *start);
 }
 
 }

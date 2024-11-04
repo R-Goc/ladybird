@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021-2022, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022, MacDue <macdue@dueutil.tech>
  *
@@ -7,7 +7,6 @@
  */
 
 #include <LibGfx/DisjointRectSet.h>
-#include <LibGfx/Painter.h>
 #include <LibWeb/Painting/BorderPainting.h>
 #include <LibWeb/Painting/BorderRadiusCornerClipper.h>
 #include <LibWeb/Painting/PaintBoxShadowParams.h>

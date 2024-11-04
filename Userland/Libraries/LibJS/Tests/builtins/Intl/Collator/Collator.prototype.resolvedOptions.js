@@ -28,9 +28,12 @@ describe("correct behavior", () => {
         const en1 = new Intl.Collator("en");
         expect(en1.resolvedOptions().sensitivity).toBe("variant");
 
+        const en2 = new Intl.Collator("en", { usage: "search" });
+        expect(en2.resolvedOptions().sensitivity).toBe("variant");
+
         ["base", "accent", "case", "variant"].forEach(sensitivity => {
-            const en2 = new Intl.Collator("en", { sensitivity: sensitivity });
-            expect(en2.resolvedOptions().sensitivity).toBe(sensitivity);
+            const en3 = new Intl.Collator("en", { sensitivity: sensitivity });
+            expect(en3.resolvedOptions().sensitivity).toBe(sensitivity);
         });
     });
 
@@ -38,9 +41,15 @@ describe("correct behavior", () => {
         const en1 = new Intl.Collator("en");
         expect(en1.resolvedOptions().ignorePunctuation).toBeFalse();
 
+        const th1 = new Intl.Collator("th");
+        expect(th1.resolvedOptions().ignorePunctuation).toBeTrue();
+
         [true, false].forEach(ignorePunctuation => {
             const en2 = new Intl.Collator("en", { ignorePunctuation: ignorePunctuation });
             expect(en2.resolvedOptions().ignorePunctuation).toBe(ignorePunctuation);
+
+            const th2 = new Intl.Collator("th", { ignorePunctuation: ignorePunctuation });
+            expect(th2.resolvedOptions().ignorePunctuation).toBe(ignorePunctuation);
         });
     });
 

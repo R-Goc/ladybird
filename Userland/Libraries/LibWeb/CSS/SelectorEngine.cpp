@@ -1,14 +1,14 @@
 /*
- * Copyright (c) 2018-2024, Andreas Kling <kling@serenityos.org>
- * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
+ * Copyright (c) 2018-2024, Andreas Kling <andreas@ladybird.org>
+ * Copyright (c) 2021-2024, Sam Atkins <sam@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWeb/CSS/Keyword.h>
 #include <LibWeb/CSS/Parser/Parser.h>
 #include <LibWeb/CSS/SelectorEngine.h>
 #include <LibWeb/CSS/StyleProperties.h>
-#include <LibWeb/CSS/ValueID.h>
 #include <LibWeb/DOM/Attr.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
@@ -34,6 +34,8 @@
 
 namespace Web::SelectorEngine {
 
+static inline bool matches(CSS::Selector const& selector, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, int component_list_index, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host, JS::GCPtr<DOM::ParentNode const> scope, SelectorKind selector_kind, JS::GCPtr<DOM::Element const> anchor = nullptr);
+
 // Upward traversal for descendant (' ') and immediate child combinator ('>')
 // If we're starting inside a shadow tree, traversal stops at the nearest shadow host.
 // This is an implementation detail of the :host selector. Otherwise we would just traverse up to the document root.
@@ -55,16 +57,11 @@ static inline JS::GCPtr<DOM::Node const> traverse_up(JS::GCPtr<DOM::Node const> 
 // https://drafts.csswg.org/selectors-4/#the-lang-pseudo
 static inline bool matches_lang_pseudo_class(DOM::Element const& element, Vector<FlyString> const& languages)
 {
-    FlyString element_language;
-    for (auto const* e = &element; e; e = e->parent_element()) {
-        auto lang = e->attribute(HTML::AttributeNames::lang);
-        if (lang.has_value()) {
-            element_language = lang.release_value();
-            break;
-        }
-    }
-    if (element_language.is_empty())
+    auto maybe_element_language = element.lang();
+    if (!maybe_element_language.has_value())
         return false;
+
+    auto element_language = maybe_element_language.release_value();
 
     // FIXME: This is ad-hoc. Implement a proper language range matching algorithm as recommended by BCP47.
     for (auto const& language : languages) {
@@ -72,29 +69,32 @@ static inline bool matches_lang_pseudo_class(DOM::Element const& element, Vector
             continue;
         if (language == "*"sv)
             return true;
-        if (!element_language.to_string().contains('-') && Infra::is_ascii_case_insensitive_match(element_language, language))
+        if (!element_language.contains('-') && Infra::is_ascii_case_insensitive_match(element_language, language))
             return true;
-        auto parts = element_language.to_string().split_limit('-', 2).release_value_but_fixme_should_propagate_errors();
-        if (Infra::is_ascii_case_insensitive_match(parts[0], language))
+        auto parts = element_language.split_limit('-', 2).release_value_but_fixme_should_propagate_errors();
+        if (!parts.is_empty() && Infra::is_ascii_case_insensitive_match(parts[0], language))
             return true;
     }
     return false;
 }
 
 // https://drafts.csswg.org/selectors-4/#relational
-static inline bool matches_has_pseudo_class(CSS::Selector const& selector, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, DOM::Element const& anchor, JS::GCPtr<DOM::Element const> shadow_host)
+static inline bool matches_relative_selector(CSS::Selector const& selector, size_t compound_index, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host, JS::NonnullGCPtr<DOM::Element const> anchor)
 {
-    switch (selector.compound_selectors()[0].combinator) {
+    if (compound_index >= selector.compound_selectors().size())
+        return matches(selector, style_sheet_for_rule, element, shadow_host, {}, {}, SelectorKind::Relative, anchor);
+
+    switch (selector.compound_selectors()[compound_index].combinator) {
     // Shouldn't be possible because we've parsed relative selectors, which always have a combinator, implicitly or explicitly.
     case CSS::Selector::Combinator::None:
         VERIFY_NOT_REACHED();
     case CSS::Selector::Combinator::Descendant: {
         bool has = false;
-        anchor.for_each_in_subtree([&](auto const& descendant) {
+        element.for_each_in_subtree([&](auto const& descendant) {
             if (!descendant.is_element())
                 return TraversalDecision::Continue;
             auto const& descendant_element = static_cast<DOM::Element const&>(descendant);
-            if (matches(selector, style_sheet_for_rule, descendant_element, shadow_host, {}, {}, SelectorKind::Relative)) {
+            if (matches(selector, style_sheet_for_rule, descendant_element, shadow_host, {}, {}, SelectorKind::Relative, anchor)) {
                 has = true;
                 return TraversalDecision::Break;
             }
@@ -104,11 +104,13 @@ static inline bool matches_has_pseudo_class(CSS::Selector const& selector, Optio
     }
     case CSS::Selector::Combinator::ImmediateChild: {
         bool has = false;
-        anchor.for_each_child([&](DOM::Node const& child) {
+        element.for_each_child([&](DOM::Node const& child) {
             if (!child.is_element())
                 return IterationDecision::Continue;
             auto const& child_element = static_cast<DOM::Element const&>(child);
-            if (matches(selector, style_sheet_for_rule, child_element, shadow_host, {}, {}, SelectorKind::Relative)) {
+            if (!matches(selector, style_sheet_for_rule, compound_index, child_element, shadow_host, {}, SelectorKind::Relative, anchor))
+                return IterationDecision::Continue;
+            if (matches_relative_selector(selector, compound_index + 1, style_sheet_for_rule, child_element, shadow_host, anchor)) {
                 has = true;
                 return IterationDecision::Break;
             }
@@ -116,11 +118,19 @@ static inline bool matches_has_pseudo_class(CSS::Selector const& selector, Optio
         });
         return has;
     }
-    case CSS::Selector::Combinator::NextSibling:
-        return anchor.next_element_sibling() != nullptr && matches(selector, style_sheet_for_rule, *anchor.next_element_sibling(), shadow_host, {}, {}, SelectorKind::Relative);
+    case CSS::Selector::Combinator::NextSibling: {
+        auto* sibling = element.next_element_sibling();
+        if (!sibling)
+            return false;
+        if (!matches(selector, style_sheet_for_rule, compound_index, *sibling, shadow_host, {}, SelectorKind::Relative, anchor))
+            return false;
+        return matches_relative_selector(selector, compound_index + 1, style_sheet_for_rule, *sibling, shadow_host, anchor);
+    }
     case CSS::Selector::Combinator::SubsequentSibling: {
-        for (auto* sibling = anchor.next_element_sibling(); sibling; sibling = sibling->next_element_sibling()) {
-            if (matches(selector, style_sheet_for_rule, *sibling, shadow_host, {}, {}, SelectorKind::Relative))
+        for (auto const* sibling = element.next_element_sibling(); sibling; sibling = sibling->next_element_sibling()) {
+            if (!matches(selector, style_sheet_for_rule, compound_index, *sibling, shadow_host, {}, SelectorKind::Relative, anchor))
+                continue;
+            if (matches_relative_selector(selector, compound_index + 1, style_sheet_for_rule, *sibling, shadow_host, anchor))
                 return true;
         }
         return false;
@@ -129,6 +139,12 @@ static inline bool matches_has_pseudo_class(CSS::Selector const& selector, Optio
         TODO();
     }
     return false;
+}
+
+// https://drafts.csswg.org/selectors-4/#relational
+static inline bool matches_has_pseudo_class(CSS::Selector const& selector, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, DOM::Element const& anchor, JS::GCPtr<DOM::Element const> shadow_host)
+{
+    return matches_relative_selector(selector, 0, style_sheet_for_rule, anchor, shadow_host, anchor);
 }
 
 // https://html.spec.whatwg.org/multipage/semantics-other.html#selector-link
@@ -140,14 +156,14 @@ static inline bool matches_link_pseudo_class(DOM::Element const& element)
     return element.has_attribute(HTML::AttributeNames::href);
 }
 
-static inline bool matches_hover_pseudo_class(DOM::Element const& element)
+bool matches_hover_pseudo_class(DOM::Element const& element)
 {
     auto* hovered_node = element.document().hovered_node();
     if (!hovered_node)
         return false;
     if (&element == hovered_node)
         return true;
-    return element.is_ancestor_of(*hovered_node);
+    return element.is_shadow_including_ancestor_of(*hovered_node);
 }
 
 // https://html.spec.whatwg.org/multipage/semantics-other.html#selector-checked
@@ -213,10 +229,37 @@ static inline bool matches_attribute(CSS::Selector::SimpleSelector::Attribute co
     if (!attr)
         return false;
 
-    auto const case_insensitive_match = (attribute.case_type == CSS::Selector::SimpleSelector::Attribute::CaseType::CaseInsensitiveMatch);
-    auto const case_sensitivity = case_insensitive_match
-        ? CaseSensitivity::CaseInsensitive
-        : CaseSensitivity::CaseSensitive;
+    auto case_sensitivity = [&](CSS::Selector::SimpleSelector::Attribute::CaseType case_type) {
+        switch (case_type) {
+        case CSS::Selector::SimpleSelector::Attribute::CaseType::CaseInsensitiveMatch:
+            return CaseSensitivity::CaseInsensitive;
+        case CSS::Selector::SimpleSelector::Attribute::CaseType::CaseSensitiveMatch:
+            return CaseSensitivity::CaseSensitive;
+        case CSS::Selector::SimpleSelector::Attribute::CaseType::DefaultMatch:
+            // See: https://html.spec.whatwg.org/multipage/semantics-other.html#case-sensitivity-of-selectors
+            if (element.document().is_html_document()
+                && element.namespace_uri() == Namespace::HTML
+                && attribute_name.is_one_of(
+                    HTML::AttributeNames::accept, HTML::AttributeNames::accept_charset, HTML::AttributeNames::align,
+                    HTML::AttributeNames::alink, HTML::AttributeNames::axis, HTML::AttributeNames::bgcolor, HTML::AttributeNames::charset,
+                    HTML::AttributeNames::checked, HTML::AttributeNames::clear, HTML::AttributeNames::codetype, HTML::AttributeNames::color,
+                    HTML::AttributeNames::compact, HTML::AttributeNames::declare, HTML::AttributeNames::defer, HTML::AttributeNames::dir,
+                    HTML::AttributeNames::direction, HTML::AttributeNames::disabled, HTML::AttributeNames::enctype, HTML::AttributeNames::face,
+                    HTML::AttributeNames::frame, HTML::AttributeNames::hreflang, HTML::AttributeNames::http_equiv, HTML::AttributeNames::lang,
+                    HTML::AttributeNames::language, HTML::AttributeNames::link, HTML::AttributeNames::media, HTML::AttributeNames::method,
+                    HTML::AttributeNames::multiple, HTML::AttributeNames::nohref, HTML::AttributeNames::noresize, HTML::AttributeNames::noshade,
+                    HTML::AttributeNames::nowrap, HTML::AttributeNames::readonly, HTML::AttributeNames::rel, HTML::AttributeNames::rev,
+                    HTML::AttributeNames::rules, HTML::AttributeNames::scope, HTML::AttributeNames::scrolling, HTML::AttributeNames::selected,
+                    HTML::AttributeNames::shape, HTML::AttributeNames::target, HTML::AttributeNames::text, HTML::AttributeNames::type,
+                    HTML::AttributeNames::valign, HTML::AttributeNames::valuetype, HTML::AttributeNames::vlink)) {
+                return CaseSensitivity::CaseInsensitive;
+            }
+
+            return CaseSensitivity::CaseSensitive;
+        }
+        VERIFY_NOT_REACHED();
+    }(attribute.case_type);
+    auto case_insensitive_match = case_sensitivity == CaseSensitivity::CaseInsensitive;
 
     switch (attribute.match_type) {
     case CSS::Selector::SimpleSelector::Attribute::MatchType::ExactValueMatch:
@@ -606,13 +649,13 @@ static inline bool matches_pseudo_class(CSS::Selector::SimpleSelector::PseudoCla
     case CSS::PseudoClass::Dir: {
         // "Values other than ltr and rtl are not invalid, but do not match anything."
         // - https://www.w3.org/TR/selectors-4/#the-dir-pseudo
-        if (!first_is_one_of(pseudo_class.identifier, CSS::ValueID::Ltr, CSS::ValueID::Rtl))
+        if (!first_is_one_of(pseudo_class.keyword, CSS::Keyword::Ltr, CSS::Keyword::Rtl))
             return false;
         switch (element.directionality()) {
         case DOM::Element::Directionality::Ltr:
-            return pseudo_class.identifier == CSS::ValueID::Ltr;
+            return pseudo_class.keyword == CSS::Keyword::Ltr;
         case DOM::Element::Directionality::Rtl:
-            return pseudo_class.identifier == CSS::ValueID::Rtl;
+            return pseudo_class.keyword == CSS::Keyword::Rtl;
         }
         VERIFY_NOT_REACHED();
     }
@@ -680,7 +723,7 @@ static ALWAYS_INLINE bool matches_namespace(
     VERIFY_NOT_REACHED();
 }
 
-static inline bool matches(CSS::Selector::SimpleSelector const& component, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host, JS::GCPtr<DOM::ParentNode const> scope, SelectorKind selector_kind)
+static inline bool matches(CSS::Selector::SimpleSelector const& component, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host, JS::GCPtr<DOM::ParentNode const> scope, SelectorKind selector_kind, [[maybe_unused]] JS::GCPtr<DOM::Element const> anchor)
 {
     switch (component.type) {
     case CSS::Selector::SimpleSelector::Type::Universal:
@@ -715,22 +758,27 @@ static inline bool matches(CSS::Selector::SimpleSelector const& component, Optio
     case CSS::Selector::SimpleSelector::Type::PseudoElement:
         // Pseudo-element matching/not-matching is handled in the top level matches().
         return true;
-    default:
+    case CSS::Selector::SimpleSelector::Type::Nesting:
+        // We should only try to match selectors that have been absolutized!
         VERIFY_NOT_REACHED();
     }
+    VERIFY_NOT_REACHED();
 }
 
-static inline bool matches(CSS::Selector const& selector, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, int component_list_index, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host, JS::GCPtr<DOM::ParentNode const> scope, SelectorKind selector_kind)
+bool matches(CSS::Selector const& selector, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, int component_list_index, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host, JS::GCPtr<DOM::ParentNode const> scope, SelectorKind selector_kind, JS::GCPtr<DOM::Element const> anchor)
 {
     auto& compound_selector = selector.compound_selectors()[component_list_index];
     for (auto& simple_selector : compound_selector.simple_selectors) {
-        if (!matches(simple_selector, style_sheet_for_rule, element, shadow_host, scope, selector_kind)) {
+        if (!matches(simple_selector, style_sheet_for_rule, element, shadow_host, scope, selector_kind, anchor)) {
             return false;
         }
     }
-    // Always matches because we assume that element is already relative to its anchor
-    if (selector_kind == SelectorKind::Relative && component_list_index == 0)
-        return true;
+
+    if (selector_kind == SelectorKind::Relative && component_list_index == 0) {
+        VERIFY(anchor);
+        return &element != anchor;
+    }
+
     switch (compound_selector.combinator) {
     case CSS::Selector::Combinator::None:
         VERIFY(selector_kind != SelectorKind::Relative);
@@ -740,7 +788,9 @@ static inline bool matches(CSS::Selector const& selector, Optional<CSS::CSSStyle
         for (auto ancestor = traverse_up(element, shadow_host); ancestor; ancestor = traverse_up(ancestor, shadow_host)) {
             if (!is<DOM::Element>(*ancestor))
                 continue;
-            if (matches(selector, style_sheet_for_rule, component_list_index - 1, static_cast<DOM::Element const&>(*ancestor), shadow_host, scope, selector_kind))
+            if (ancestor == anchor)
+                return false;
+            if (matches(selector, style_sheet_for_rule, component_list_index - 1, static_cast<DOM::Element const&>(*ancestor), shadow_host, scope, selector_kind, anchor))
                 return true;
         }
         return false;
@@ -749,17 +799,17 @@ static inline bool matches(CSS::Selector const& selector, Optional<CSS::CSSStyle
         auto parent = traverse_up(element, shadow_host);
         if (!parent || !parent->is_element())
             return false;
-        return matches(selector, style_sheet_for_rule, component_list_index - 1, static_cast<DOM::Element const&>(*parent), shadow_host, scope, selector_kind);
+        return matches(selector, style_sheet_for_rule, component_list_index - 1, static_cast<DOM::Element const&>(*parent), shadow_host, scope, selector_kind, anchor);
     }
     case CSS::Selector::Combinator::NextSibling:
         VERIFY(component_list_index != 0);
         if (auto* sibling = element.previous_element_sibling())
-            return matches(selector, style_sheet_for_rule, component_list_index - 1, *sibling, shadow_host, scope, selector_kind);
+            return matches(selector, style_sheet_for_rule, component_list_index - 1, *sibling, shadow_host, scope, selector_kind, anchor);
         return false;
     case CSS::Selector::Combinator::SubsequentSibling:
         VERIFY(component_list_index != 0);
         for (auto* sibling = element.previous_element_sibling(); sibling; sibling = sibling->previous_element_sibling()) {
-            if (matches(selector, style_sheet_for_rule, component_list_index - 1, *sibling, shadow_host, scope, selector_kind))
+            if (matches(selector, style_sheet_for_rule, component_list_index - 1, *sibling, shadow_host, scope, selector_kind, anchor))
                 return true;
         }
         return false;
@@ -769,14 +819,14 @@ static inline bool matches(CSS::Selector const& selector, Optional<CSS::CSSStyle
     VERIFY_NOT_REACHED();
 }
 
-bool matches(CSS::Selector const& selector, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host, Optional<CSS::Selector::PseudoElement::Type> pseudo_element, JS::GCPtr<DOM::ParentNode const> scope, SelectorKind selector_kind)
+bool matches(CSS::Selector const& selector, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host, Optional<CSS::Selector::PseudoElement::Type> pseudo_element, JS::GCPtr<DOM::ParentNode const> scope, SelectorKind selector_kind, JS::GCPtr<DOM::Element const> anchor)
 {
     VERIFY(!selector.compound_selectors().is_empty());
     if (pseudo_element.has_value() && selector.pseudo_element().has_value() && selector.pseudo_element().value().type() != pseudo_element)
         return false;
     if (!pseudo_element.has_value() && selector.pseudo_element().has_value())
         return false;
-    return matches(selector, style_sheet_for_rule, selector.compound_selectors().size() - 1, element, shadow_host, scope, selector_kind);
+    return matches(selector, style_sheet_for_rule, selector.compound_selectors().size() - 1, element, shadow_host, scope, selector_kind, anchor);
 }
 
 static bool fast_matches_simple_selector(CSS::Selector::SimpleSelector const& simple_selector, Optional<CSS::CSSStyleSheet const&> style_sheet_for_rule, DOM::Element const& element, JS::GCPtr<DOM::Element const> shadow_host)

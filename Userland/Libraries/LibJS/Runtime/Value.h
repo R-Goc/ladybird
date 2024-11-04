@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2020-2023, Linus Groh <linusg@serenityos.org>
  * Copyright (c) 2022, David Tuin <davidot@serenityos.org>
  *
@@ -458,6 +458,19 @@ public:
         return static_cast<i32>(m_value.encoded & 0xFFFFFFFF);
     }
 
+    i32 as_i32_clamped_integral_number() const
+    {
+        VERIFY(is_int32() || is_finite_number());
+        if (is_int32())
+            return as_i32();
+        double value = trunc(as_double());
+        if (value > INT32_MAX)
+            return INT32_MAX;
+        if (value < INT32_MIN)
+            return INT32_MIN;
+        return static_cast<i32>(value);
+    }
+
     bool to_boolean_slow_case() const;
 
 private:
@@ -599,7 +612,7 @@ namespace AK {
 static_assert(sizeof(JS::Value) == sizeof(double));
 
 template<>
-class Optional<JS::Value> {
+class Optional<JS::Value> : public OptionalBase<JS::Value> {
     template<typename U>
     friend class Optional;
 
@@ -701,26 +714,6 @@ public:
         clear();
         return released_value;
     }
-
-    JS::Value value_or(JS::Value const& fallback) const&
-    {
-        if (has_value())
-            return value();
-        return fallback;
-    }
-
-    [[nodiscard]] JS::Value value_or(JS::Value&& fallback) &&
-    {
-        if (has_value())
-            return value();
-        return fallback;
-    }
-
-    JS::Value const& operator*() const { return value(); }
-    JS::Value& operator*() { return value(); }
-
-    JS::Value const* operator->() const { return &value(); }
-    JS::Value* operator->() { return &value(); }
 
 private:
     JS::Value m_value;

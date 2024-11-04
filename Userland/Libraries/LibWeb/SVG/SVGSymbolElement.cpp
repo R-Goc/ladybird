@@ -7,8 +7,8 @@
 #include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/Bindings/SVGSymbolElementPrototype.h>
 #include <LibWeb/CSS/StyleProperties.h>
+#include <LibWeb/CSS/StyleValues/CSSKeywordValue.h>
 #include <LibWeb/CSS/StyleValues/DisplayStyleValue.h>
-#include <LibWeb/CSS/StyleValues/IdentifierStyleValue.h>
 #include <LibWeb/CSS/StyleValues/ShorthandStyleValue.h>
 #include <LibWeb/DOM/ShadowRoot.h>
 #include <LibWeb/Layout/SVGGraphicsBox.h>
@@ -74,7 +74,7 @@ bool SVGSymbolElement::is_direct_child_of_use_shadow_tree() const
     return is<SVGUseElement>(host);
 }
 
-JS::GCPtr<Layout::Node> SVGSymbolElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
+JS::GCPtr<Layout::Node> SVGSymbolElement::create_layout_node(CSS::StyleProperties style)
 {
     return heap().allocate_without_realm<Layout::SVGGraphicsBox>(document(), *this, move(style));
 }

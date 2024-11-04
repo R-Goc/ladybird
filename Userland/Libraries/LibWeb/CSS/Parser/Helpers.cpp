@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2022, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2020-2023, the SerenityOS developers.
  * Copyright (c) 2021-2024, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
@@ -20,9 +20,14 @@ CSS::CSSStyleSheet* parse_css_stylesheet(CSS::Parser::ParsingContext const& cont
     if (css.is_empty()) {
         auto rule_list = CSS::CSSRuleList::create_empty(context.realm());
         auto media_list = CSS::MediaList::create(context.realm(), {});
-        return CSS::CSSStyleSheet::create(context.realm(), rule_list, media_list, location);
+        auto style_sheet = CSS::CSSStyleSheet::create(context.realm(), rule_list, media_list, location);
+        style_sheet->set_source_text({});
+        return style_sheet;
     }
-    return CSS::Parser::Parser::create(context, css).parse_as_css_stylesheet(location);
+    auto* style_sheet = CSS::Parser::Parser::create(context, css).parse_as_css_stylesheet(location);
+    // FIXME: Avoid this copy
+    style_sheet->set_source_text(MUST(String::from_utf8(css)));
+    return style_sheet;
 }
 
 CSS::ElementInlineCSSStyleDeclaration* parse_css_style_attribute(CSS::Parser::ParsingContext const& context, StringView css, DOM::Element& element)
@@ -32,7 +37,7 @@ CSS::ElementInlineCSSStyleDeclaration* parse_css_style_attribute(CSS::Parser::Pa
     return CSS::Parser::Parser::create(context, css).parse_as_style_attribute(element);
 }
 
-RefPtr<CSS::StyleValue> parse_css_value(CSS::Parser::ParsingContext const& context, StringView string, CSS::PropertyID property_id)
+RefPtr<CSS::CSSStyleValue> parse_css_value(CSS::Parser::ParsingContext const& context, StringView string, CSS::PropertyID property_id)
 {
     if (string.is_empty())
         return nullptr;

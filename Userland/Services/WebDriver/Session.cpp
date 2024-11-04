@@ -3,7 +3,7 @@
  * Copyright (c) 2022, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2022, Linus Groh <linusg@serenityos.org>
- * Copyright (c) 2022, Tim Flynn <trflynn89@serenityos.org>
+ * Copyright (c) 2022-2024, Tim Flynn <trflynn89@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -11,7 +11,7 @@
 #include "Session.h"
 #include "Client.h"
 #include <AK/JsonObject.h>
-#include <AK/ScopeGuard.h>
+#include <AK/JsonValue.h>
 #include <LibCore/LocalServer.h>
 #include <LibCore/StandardPaths.h>
 #include <LibCore/System.h>
@@ -55,6 +55,8 @@ Session::~Session()
 
 ErrorOr<NonnullRefPtr<Core::LocalServer>> Session::create_server(NonnullRefPtr<ServerPromise> promise)
 {
+    static_assert(IsSame<IPC::Transport, IPC::TransportSocket>, "Need to handle other IPC transports here");
+
     dbgln("Listening for WebDriver connection on {}", *m_web_content_socket_path);
 
     (void)Core::System::unlink(*m_web_content_socket_path);
@@ -63,7 +65,7 @@ ErrorOr<NonnullRefPtr<Core::LocalServer>> Session::create_server(NonnullRefPtr<S
     server->listen(*m_web_content_socket_path);
 
     server->on_accept = [this, promise](auto client_socket) {
-        auto maybe_connection = adopt_nonnull_ref_or_enomem(new (nothrow) WebContentConnection(move(client_socket)));
+        auto maybe_connection = adopt_nonnull_ref_or_enomem(new (nothrow) WebContentConnection(IPC::Transport(move(client_socket))));
         if (maybe_connection.is_error()) {
             promise->resolve(maybe_connection.release_error());
             return;
@@ -72,7 +74,14 @@ ErrorOr<NonnullRefPtr<Core::LocalServer>> Session::create_server(NonnullRefPtr<S
         dbgln("WebDriver is connected to WebContent socket");
         auto web_content_connection = maybe_connection.release_value();
 
-        auto window_handle = web_content_connection->get_window_handle();
+        auto maybe_window_handle = web_content_connection->get_window_handle();
+        if (maybe_window_handle.is_error()) {
+            promise->reject(Error::from_string_literal("Window was closed immediately"));
+            return;
+        }
+
+        auto window_handle = MUST(String::from_byte_string(maybe_window_handle.value().as_string()));
+
         web_content_connection->on_close = [this, window_handle]() {
             dbgln_if(WEBDRIVER_DEBUG, "Window {} was closed remotely.", window_handle);
             m_windows.remove(window_handle);
@@ -122,7 +131,9 @@ Web::WebDriver::Response Session::close_window()
         ScopeGuard guard { [this] { m_windows.remove(m_current_window_handle); m_current_window_handle = "NoSuchWindowPleaseSelectANewOne"_string; } };
 
         // 3. Close the current top-level browsing context.
-        TRY(web_content_connection().close_window());
+        TRY(perform_async_action([&](auto& connection) {
+            return connection.close_window();
+        }));
 
         // 4. If there are no more open top-level browsing contexts, then close the session.
         if (m_windows.size() == 1)
@@ -147,7 +158,7 @@ Web::WebDriver::Response Session::switch_to_window(StringView handle)
 
     // 5. Update any implementation-specific state that would result from the user selecting the current
     //    browsing context for interaction, without altering OS-level focus.
-    TRY(web_content_connection().switch_to_window());
+    TRY(web_content_connection().switch_to_window(m_current_window_handle));
 
     // 6. Return success with data null.
     return JsonValue {};
@@ -166,6 +177,13 @@ Web::WebDriver::Response Session::get_window_handles() const
 
     // 3. Return success with data handles.
     return JsonValue { move(handles) };
+}
+
+ErrorOr<void, Web::WebDriver::Error> Session::ensure_current_window_handle_is_valid() const
+{
+    if (auto current_window = m_windows.get(m_current_window_handle); current_window.has_value())
+        return {};
+    return Web::WebDriver::Error::from_code(Web::WebDriver::ErrorCode::NoSuchWindow, "Window not found"sv);
 }
 
 }

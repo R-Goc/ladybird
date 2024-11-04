@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -119,6 +119,7 @@ namespace AttributeNames {
     __ENUMERATE_HTML_ATTRIBUTE(name)                       \
     __ENUMERATE_HTML_ATTRIBUTE(nohref)                     \
     __ENUMERATE_HTML_ATTRIBUTE(nomodule)                   \
+    __ENUMERATE_HTML_ATTRIBUTE(nonce)                      \
     __ENUMERATE_HTML_ATTRIBUTE(noresize)                   \
     __ENUMERATE_HTML_ATTRIBUTE(noshade)                    \
     __ENUMERATE_HTML_ATTRIBUTE(novalidate)                 \
@@ -227,6 +228,7 @@ namespace AttributeNames {
     __ENUMERATE_HTML_ATTRIBUTE(rowspan)                    \
     __ENUMERATE_HTML_ATTRIBUTE(rules)                      \
     __ENUMERATE_HTML_ATTRIBUTE(scheme)                     \
+    __ENUMERATE_HTML_ATTRIBUTE(scope)                      \
     __ENUMERATE_HTML_ATTRIBUTE(scrollamount)               \
     __ENUMERATE_HTML_ATTRIBUTE(scrolldelay)                \
     __ENUMERATE_HTML_ATTRIBUTE(scrolling)                  \

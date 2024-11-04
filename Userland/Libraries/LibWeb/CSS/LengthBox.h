@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -16,7 +16,7 @@ public:
     LengthBox(LengthPercentage top, LengthPercentage right, LengthPercentage bottom, LengthPercentage left);
     ~LengthBox();
 
-    // Length (and thus LengthPercentage) includes a RefPtr<CalculatedStyleValue> member, but we can't include the header StyleValue.h as it includes
+    // Length (and thus LengthPercentage) includes a RefPtr<CSSMathValue> member, but we can't include the header CSSStyleValue.h as it includes
     // this file already. To break the cyclic dependency, we must initialize these members in the constructor.
     LengthPercentage& top() { return m_top; }
     LengthPercentage& right() { return m_right; }
@@ -26,6 +26,8 @@ public:
     LengthPercentage const& right() const { return m_right; }
     LengthPercentage const& bottom() const { return m_bottom; }
     LengthPercentage const& left() const { return m_left; }
+
+    bool operator==(LengthBox const&) const = default;
 
 private:
     LengthPercentage m_top;

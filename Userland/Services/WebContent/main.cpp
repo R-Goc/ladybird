@@ -1,11 +1,10 @@
 /*
- * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "ImageCodecPluginSerenity.h"
-#include <LibAudio/Loader.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/LocalServer.h>
 #include <LibCore/StandardPaths.h>
@@ -13,6 +12,7 @@
 #include <LibFileSystem/FileSystem.h>
 #include <LibIPC/SingleServer.h>
 #include <LibMain/Main.h>
+#include <LibMedia/Audio/Loader.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/Platform/AudioCodecPluginAgnostic.h>
@@ -50,8 +50,8 @@ ErrorOr<int> serenity_main(Main::Arguments)
         return Web::Platform::AudioCodecPluginAgnostic::create(move(loader));
     });
 
-    Web::ResourceLoader::initialize(TRY(WebView::RequestServerAdapter::try_create()));
     TRY(Web::Bindings::initialize_main_thread_vm(Web::HTML::EventLoop::Type::Window));
+    Web::ResourceLoader::initialize(Web::Bindings::main_thread_vm().heap(), TRY(WebView::RequestServerAdapter::try_create()));
 
     auto client = TRY(IPC::take_over_accepted_client_from_system_server<WebContent::ConnectionFromClient>());
     return event_loop.exec();

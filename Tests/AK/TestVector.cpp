@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -54,6 +54,19 @@ TEST_CASE(strings)
         ++loop_counter;
     }
     EXPECT_EQ(loop_counter, 2);
+}
+
+TEST_CASE(conforms_to_iterator_protocol)
+{
+    static_assert(std::random_access_iterator<Vector<int>::Iterator>);
+    static_assert(std::random_access_iterator<Vector<int>::ConstIterator>);
+    static_assert(std::random_access_iterator<Vector<int const>::Iterator>);
+    static_assert(std::random_access_iterator<Vector<int const>::ConstIterator>);
+
+    static_assert(std::random_access_iterator<Vector<String>::Iterator>);
+    static_assert(std::random_access_iterator<Vector<String>::ConstIterator>);
+    static_assert(std::random_access_iterator<Vector<String const>::Iterator>);
+    static_assert(std::random_access_iterator<Vector<String const>::ConstIterator>);
 }
 
 TEST_CASE(strings_insert_ordered)

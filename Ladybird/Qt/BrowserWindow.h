@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -35,7 +35,7 @@ public:
         Yes,
     };
 
-    BrowserWindow(Vector<URL::URL> const& initial_urls, WebView::CookieJar&, IsPopupWindow is_popup_window = IsPopupWindow::No, Tab* parent_tab = nullptr, Optional<u64> page_index = {});
+    BrowserWindow(Vector<URL::URL> const& initial_urls, IsPopupWindow is_popup_window = IsPopupWindow::No, Tab* parent_tab = nullptr, Optional<u64> page_index = {});
 
     WebContentView& view() const { return m_current_tab->view(); }
 
@@ -183,8 +183,6 @@ private:
     Web::CSS::PreferredColorScheme m_preferred_color_scheme;
     void set_preferred_color_scheme(Web::CSS::PreferredColorScheme color_scheme);
 
-    static void dump_connection_info();
-
     QTabWidget* m_tabs_container { nullptr };
     Tab* m_current_tab { nullptr };
     QMenu* m_zoom_menu { nullptr };
@@ -213,8 +211,6 @@ private:
     ByteString m_navigator_compatibility_mode {};
 
     SettingsDialog* m_settings_dialog { nullptr };
-
-    WebView::CookieJar& m_cookie_jar;
 
     IsPopupWindow m_is_popup_window { IsPopupWindow::No };
 };

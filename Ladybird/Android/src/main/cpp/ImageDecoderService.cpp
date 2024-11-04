@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Andrew Kaster <akaster@serenityos.org>
  * Copyright (c) 2023, Lucas Chollet <lucas.chollet@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "LadybirdServiceBase.h"
 #include <ImageDecoder/ConnectionFromClient.h>
 #include <LibCore/EventLoop.h>
 #include <LibIPC/SingleServer.h>

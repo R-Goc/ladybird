@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2020-2023, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -15,6 +15,7 @@
 #include <LibJS/Runtime/Iterator.h>
 #include <LibJS/Runtime/TypedArray.h>
 #include <LibJS/Runtime/TypedArrayConstructor.h>
+#include <LibJS/Runtime/Uint8Array.h>
 #include <LibJS/Runtime/ValueInlines.h>
 
 namespace JS {
@@ -500,6 +501,9 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
         auto& vm = this->vm();                                                                                              \
         Base::initialize(realm);                                                                                            \
         define_direct_property(vm.names.BYTES_PER_ELEMENT, Value((i32)sizeof(Type)), 0);                                    \
+                                                                                                                            \
+        if constexpr (IsSame<PrototypeName, Uint8ArrayPrototype>)                                                           \
+            Uint8ArrayPrototypeHelpers::initialize(realm, *this);                                                           \
     }                                                                                                                       \
                                                                                                                             \
     ConstructorName::ConstructorName(Realm& realm, Object& prototype)                                                       \
@@ -523,6 +527,9 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
         define_direct_property(vm.names.BYTES_PER_ELEMENT, Value((i32)sizeof(Type)), 0);                                    \
                                                                                                                             \
         define_direct_property(vm.names.length, Value(3), Attribute::Configurable);                                         \
+                                                                                                                            \
+        if constexpr (IsSame<ConstructorName, Uint8ArrayConstructor>)                                                       \
+            Uint8ArrayConstructorHelpers::initialize(realm, *this);                                                         \
     }                                                                                                                       \
                                                                                                                             \
     /* 23.2.5.1 TypedArray ( ...args ), https://tc39.es/ecma262/#sec-typedarray */                                          \

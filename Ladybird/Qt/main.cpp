@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -19,8 +19,6 @@
 #include <LibMain/Main.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/ChromeProcess.h>
-#include <LibWebView/CookieJar.h>
-#include <LibWebView/Database.h>
 #include <LibWebView/ProcessManager.h>
 #include <LibWebView/URL.h>
 
@@ -75,7 +73,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     platform_init();
 
-    auto chrome_process = TRY(WebView::ChromeProcess::create());
+    WebView::ChromeProcess chrome_process;
 
     if (app->chrome_options().force_new_process == WebView::ForceNewProcess::No) {
         auto disposition = TRY(chrome_process.connect(app->chrome_options().raw_urls, app->chrome_options().new_window));
@@ -115,26 +113,18 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     copy_default_config_files(Ladybird::Settings::the()->directory());
 
-    RefPtr<WebView::Database> database;
-    if (app->chrome_options().disable_sql_database == WebView::DisableSQLDatabase::No)
-        database = TRY(WebView::Database::create());
-
-    auto cookie_jar = database ? TRY(WebView::CookieJar::create(*database)) : WebView::CookieJar::create();
-
     // FIXME: Create an abstraction to re-spawn the RequestServer and re-hook up its client hooks to each tab on crash
-    if (app->web_content_options().use_lagom_networking == WebView::UseLagomNetworking::Yes) {
-        auto request_server_paths = TRY(get_paths_for_helper_process("RequestServer"sv));
-        auto protocol_client = TRY(launch_request_server_process(request_server_paths, s_ladybird_resource_root));
-        app->request_server_client = move(protocol_client);
-    }
+    auto request_server_paths = TRY(get_paths_for_helper_process("RequestServer"sv));
+    auto requests_client = TRY(launch_request_server_process(request_server_paths, s_ladybird_resource_root));
+    app->request_server_client = move(requests_client);
 
     TRY(app->initialize_image_decoder());
 
     chrome_process.on_new_window = [&](auto const& urls) {
-        app->new_window(urls, *cookie_jar);
+        app->new_window(urls);
     };
 
-    auto& window = app->new_window(app->chrome_options().urls, *cookie_jar);
+    auto& window = app->new_window(app->chrome_options().urls);
     window.setWindowTitle("Ladybird");
 
     if (Ladybird::Settings::the()->is_maximized()) {

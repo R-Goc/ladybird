@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2018-2024, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2024, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021-2023, Linus Groh <linusg@serenityos.org>
  * Copyright (c) 2021-2023, Luke Wilde <lukew@serenityos.org>
- * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
+ * Copyright (c) 2021-2024, Sam Atkins <sam@ladybird.org>
  * Copyright (c) 2024, Matthew Olsson <mattco@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -18,6 +18,9 @@
 #include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/FunctionObject.h>
 #include <LibJS/Runtime/NativeFunction.h>
+#include <LibURL/Origin.h>
+#include <LibURL/Parser.h>
+#include <LibUnicode/Segmenter.h>
 #include <LibWeb/Animations/Animation.h>
 #include <LibWeb/Animations/AnimationPlaybackEvent.h>
 #include <LibWeb/Animations/AnimationTimeline.h>
@@ -26,10 +29,12 @@
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/CSS/AnimationEvent.h>
 #include <LibWeb/CSS/CSSAnimation.h>
+#include <LibWeb/CSS/CSSImportRule.h>
 #include <LibWeb/CSS/FontFaceSet.h>
 #include <LibWeb/CSS/MediaQueryList.h>
 #include <LibWeb/CSS/MediaQueryListEvent.h>
 #include <LibWeb/CSS/StyleComputer.h>
+#include <LibWeb/CSS/StyleSheetIdentifier.h>
 #include <LibWeb/CSS/SystemColor.h>
 #include <LibWeb/CSS/VisualViewport.h>
 #include <LibWeb/Cookie/ParsedCookie.h>
@@ -43,12 +48,15 @@
 #include <LibWeb/DOM/DocumentFragment.h>
 #include <LibWeb/DOM/DocumentObserver.h>
 #include <LibWeb/DOM/DocumentType.h>
+#include <LibWeb/DOM/EditingHostManager.h>
 #include <LibWeb/DOM/Element.h>
 #include <LibWeb/DOM/ElementFactory.h>
 #include <LibWeb/DOM/Event.h>
 #include <LibWeb/DOM/HTMLCollection.h>
+#include <LibWeb/DOM/InputEventsTarget.h>
 #include <LibWeb/DOM/LiveNodeList.h>
 #include <LibWeb/DOM/NodeIterator.h>
+#include <LibWeb/DOM/Position.h>
 #include <LibWeb/DOM/ProcessingInstruction.h>
 #include <LibWeb/DOM/Range.h>
 #include <LibWeb/DOM/ShadowRoot.h>
@@ -60,6 +68,7 @@
 #include <LibWeb/Fetch/Infrastructure/HTTP/Responses.h>
 #include <LibWeb/FileAPI/BlobURLStore.h>
 #include <LibWeb/HTML/AttributeNames.h>
+#include <LibWeb/HTML/BeforeUnloadEvent.h>
 #include <LibWeb/HTML/BrowsingContext.h>
 #include <LibWeb/HTML/CustomElements/CustomElementDefinition.h>
 #include <LibWeb/HTML/CustomElements/CustomElementReactionNames.h>
@@ -81,19 +90,22 @@
 #include <LibWeb/HTML/HTMLHtmlElement.h>
 #include <LibWeb/HTML/HTMLIFrameElement.h>
 #include <LibWeb/HTML/HTMLImageElement.h>
+#include <LibWeb/HTML/HTMLInputElement.h>
 #include <LibWeb/HTML/HTMLLinkElement.h>
 #include <LibWeb/HTML/HTMLObjectElement.h>
 #include <LibWeb/HTML/HTMLScriptElement.h>
+#include <LibWeb/HTML/HTMLStyleElement.h>
+#include <LibWeb/HTML/HTMLTextAreaElement.h>
 #include <LibWeb/HTML/HTMLTitleElement.h>
 #include <LibWeb/HTML/HashChangeEvent.h>
 #include <LibWeb/HTML/ListOfAvailableImages.h>
 #include <LibWeb/HTML/Location.h>
 #include <LibWeb/HTML/MessageEvent.h>
+#include <LibWeb/HTML/MessagePort.h>
 #include <LibWeb/HTML/Navigable.h>
 #include <LibWeb/HTML/Navigation.h>
 #include <LibWeb/HTML/NavigationParams.h>
 #include <LibWeb/HTML/Numbers.h>
-#include <LibWeb/HTML/Origin.h>
 #include <LibWeb/HTML/Parser/HTMLParser.h>
 #include <LibWeb/HTML/PopStateEvent.h>
 #include <LibWeb/HTML/Scripting/ClassicScript.h>
@@ -119,13 +131,15 @@
 #include <LibWeb/ResizeObserver/ResizeObserverEntry.h>
 #include <LibWeb/SVG/SVGDecodedImageData.h>
 #include <LibWeb/SVG/SVGElement.h>
+#include <LibWeb/SVG/SVGStyleElement.h>
 #include <LibWeb/SVG/SVGTitleElement.h>
-#include <LibWeb/SVG/TagNames.h>
 #include <LibWeb/Selection/Selection.h>
+#include <LibWeb/UIEvents/CompositionEvent.h>
 #include <LibWeb/UIEvents/EventNames.h>
 #include <LibWeb/UIEvents/FocusEvent.h>
 #include <LibWeb/UIEvents/KeyboardEvent.h>
 #include <LibWeb/UIEvents/MouseEvent.h>
+#include <LibWeb/UIEvents/TextEvent.h>
 #include <LibWeb/WebIDL/AbstractOperations.h>
 #include <LibWeb/WebIDL/DOMException.h>
 #include <LibWeb/WebIDL/ExceptionOr.h>
@@ -138,8 +152,8 @@ JS_DEFINE_ALLOCATOR(Document);
 static JS::NonnullGCPtr<HTML::BrowsingContext> obtain_a_browsing_context_to_use_for_a_navigation_response(
     HTML::BrowsingContext& browsing_context,
     HTML::SandboxingFlagSet sandbox_flags,
-    HTML::CrossOriginOpenerPolicy navigation_coop,
-    HTML::CrossOriginOpenerPolicyEnforcementResult coop_enforcement_result)
+    HTML::OpenerPolicy navigation_coop,
+    HTML::OpenerPolicyEnforcementResult coop_enforcement_result)
 {
     // 1. If browsingContext is not a top-level browsing context, return browsingContext.
     if (!browsing_context.is_top_level())
@@ -164,7 +178,7 @@ static JS::NonnullGCPtr<HTML::BrowsingContext> obtain_a_browsing_context_to_use_
     // 5. If sandboxFlags is not empty, then:
     if (!is_empty(sandbox_flags)) {
         // 1. Assert navigationCOOP's value is "unsafe-none".
-        VERIFY(navigation_coop.value == HTML::CrossOriginOpenerPolicyValue::UnsafeNone);
+        VERIFY(navigation_coop.value == HTML::OpenerPolicyValue::UnsafeNone);
 
         // 2. Assert: newBrowsingContext's popup sandboxing flag set is empty.
 
@@ -182,11 +196,11 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Document>> Document::create_and_initialize(
     auto browsing_context = navigation_params.navigable->active_browsing_context();
 
     // 2. Set browsingContext to the result of the obtaining a browsing context to use for a navigation response given browsingContext, navigationParams's final sandboxing flag set,
-    //    navigationParams's cross-origin opener policy, and navigationParams's COOP enforcement result.
+    //    navigationParams's opener policy, and navigationParams's COOP enforcement result.
     browsing_context = obtain_a_browsing_context_to_use_for_a_navigation_response(
         *browsing_context,
         navigation_params.final_sandboxing_flag_set,
-        navigation_params.cross_origin_opener_policy,
+        navigation_params.opener_policy,
         navigation_params.coop_enforcement_result);
 
     // FIXME: 3. Let permissionsPolicy be the result of creating a permissions policy from a response
@@ -284,7 +298,7 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Document>> Document::create_and_initialize(
     //     policy container: navigationParams's policy container
     //     FIXME: permissions policy: permissionsPolicy
     //     active sandboxing flag set: navigationParams's final sandboxing flag set
-    //     FIXME: cross-origin opener policy: navigationParams's cross-origin opener policy
+    //     FIXME: opener policy: navigationParams's opener policy
     //     FIXME: load timing info: loadTimingInfo
     //     FIXME: was created via cross-origin redirects: navigationParams's response's has cross-origin redirects
     //     during-loading navigation ID for WebDriver BiDi: navigationParams's id
@@ -335,7 +349,14 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Document>> Document::create_and_initialize(
     // FIXME: 15. Create the navigation timing entry for document, with navigationParams's response's timing info, redirectCount, navigationParams's navigation timing type, and
     //            navigationParams's response's service worker timing info.
 
-    // FIXME: 16. If navigationParams's response has a `Refresh` header, then:
+    // 16. If navigationParams's response has a `Refresh` header, then:
+    if (auto maybe_refresh = navigation_params.response->header_list()->get("Refresh"sv.bytes()); maybe_refresh.has_value()) {
+        // 1. Let value be the isomorphic decoding of the value of the header.
+        auto value = Infra::isomorphic_decode(maybe_refresh.value());
+
+        // 2. Run the shared declarative refresh steps with document and value.
+        document->shared_declarative_refresh_steps(value, nullptr);
+    }
 
     // FIXME: 17. If navigationParams's commit early hints is not null, then call navigationParams's commit early hints with document.
 
@@ -366,6 +387,7 @@ Document::Document(JS::Realm& realm, const URL::URL& url, TemporaryDocumentForFr
     , m_style_computer(make<CSS::StyleComputer>(*this))
     , m_url(url)
     , m_temporary_document_for_fragment_parsing(temporary_document_for_fragment_parsing)
+    , m_editing_host_manager(EditingHostManager::create(realm, *this))
 {
     m_legacy_platform_object_flags = PlatformObject::LegacyPlatformObjectFlags {
         .supports_named_properties = true,
@@ -373,14 +395,16 @@ Document::Document(JS::Realm& realm, const URL::URL& url, TemporaryDocumentForFr
     };
 
     m_cursor_blink_timer = Core::Timer::create_repeating(500, [this] {
-        if (!m_cursor_position)
+        auto cursor_position = this->cursor_position();
+        if (!cursor_position)
             return;
 
-        auto node = m_cursor_position->node();
+        auto node = cursor_position->node();
         if (!node)
             return;
 
-        if (auto navigable = this->navigable(); !navigable || !navigable->is_focused())
+        auto navigable = this->navigable();
+        if (!navigable || !navigable->is_focused())
             return;
 
         node->document().update_layout();
@@ -505,7 +529,7 @@ void Document::visit_edges(Cell::Visitor& visitor)
     visitor.visit(m_top_layer_elements);
     visitor.visit(m_top_layer_pending_removals);
     visitor.visit(m_console_client);
-    visitor.visit(m_cursor_position);
+    visitor.visit(m_editing_host_manager);
 }
 
 // https://w3c.github.io/selection-api/#dom-document-getselection
@@ -542,11 +566,11 @@ WebIDL::ExceptionOr<void> Document::run_the_document_write_steps(StringView inpu
 {
     // 1. If document is an XML document, then throw an "InvalidStateError" DOMException.
     if (m_type == Type::XML)
-        return WebIDL::InvalidStateError::create(realm(), "write() called on XML document."_fly_string);
+        return WebIDL::InvalidStateError::create(realm(), "write() called on XML document."_string);
 
     // 2. If document's throw-on-dynamic-markup-insertion counter is greater than 0, then throw an "InvalidStateError" DOMException.
     if (m_throw_on_dynamic_markup_insertion_counter > 0)
-        return WebIDL::InvalidStateError::create(realm(), "throw-on-dynamic-markup-insertion-counter greater than zero."_fly_string);
+        return WebIDL::InvalidStateError::create(realm(), "throw-on-dynamic-markup-insertion-counter greater than zero."_string);
 
     // 3. If document's active parser was aborted is true, then return.
     if (m_active_parser_was_aborted)
@@ -582,25 +606,25 @@ WebIDL::ExceptionOr<Document*> Document::open(Optional<String> const&, Optional<
     // because subsequent steps will modify "initial about:blank" to false, which would cause
     // initial navigation to fail in case it was "about:blank".
     if (auto navigable = this->navigable(); navigable && navigable->container() && !navigable->container()->content_navigable_initialized()) {
-        HTML::main_thread_event_loop().spin_processing_tasks_with_source_until(HTML::Task::Source::NavigationAndTraversal, [navigable_container = navigable->container()] {
+        HTML::main_thread_event_loop().spin_processing_tasks_with_source_until(HTML::Task::Source::NavigationAndTraversal, JS::create_heap_function(heap(), [navigable_container = navigable->container()] {
             return navigable_container->content_navigable_initialized();
-        });
+        }));
     }
 
     // 1. If document is an XML document, then throw an "InvalidStateError" DOMException exception.
     if (m_type == Type::XML)
-        return WebIDL::InvalidStateError::create(realm(), "open() called on XML document."_fly_string);
+        return WebIDL::InvalidStateError::create(realm(), "open() called on XML document."_string);
 
     // 2. If document's throw-on-dynamic-markup-insertion counter is greater than 0, then throw an "InvalidStateError" DOMException.
     if (m_throw_on_dynamic_markup_insertion_counter > 0)
-        return WebIDL::InvalidStateError::create(realm(), "throw-on-dynamic-markup-insertion-counter greater than zero."_fly_string);
+        return WebIDL::InvalidStateError::create(realm(), "throw-on-dynamic-markup-insertion-counter greater than zero."_string);
 
     // FIXME: 3. Let entryDocument be the entry global object's associated Document.
     auto& entry_document = *this;
 
     // 4. If document's origin is not same origin to entryDocument's origin, then throw a "SecurityError" DOMException.
     if (origin() != entry_document.origin())
-        return WebIDL::SecurityError::create(realm(), "Document.origin() not the same as entryDocument's."_fly_string);
+        return WebIDL::SecurityError::create(realm(), "Document.origin() not the same as entryDocument's."_string);
 
     // 5. If document has an active parser whose script nesting level is greater than 0, then return document.
     if (m_parser && m_parser->script_nesting_level() > 0)
@@ -660,10 +684,10 @@ WebIDL::ExceptionOr<JS::GCPtr<HTML::WindowProxy>> Document::open(StringView url,
 {
     // 1. If this is not fully active, then throw an "InvalidAccessError" DOMException exception.
     if (!is_fully_active())
-        return WebIDL::InvalidAccessError::create(realm(), "Cannot perform open on a document that isn't fully active."_fly_string);
+        return WebIDL::InvalidAccessError::create(realm(), "Cannot perform open on a document that isn't fully active."_string);
 
     // 2. Return the result of running the window open steps with url, name, and features.
-    return window()->open_impl(url, name, features);
+    return window()->window_open_steps(url, name, features);
 }
 
 // https://html.spec.whatwg.org/multipage/dynamic-markup-insertion.html#closing-the-input-stream
@@ -671,11 +695,11 @@ WebIDL::ExceptionOr<void> Document::close()
 {
     // 1. If document is an XML document, then throw an "InvalidStateError" DOMException exception.
     if (m_type == Type::XML)
-        return WebIDL::InvalidStateError::create(realm(), "close() called on XML document."_fly_string);
+        return WebIDL::InvalidStateError::create(realm(), "close() called on XML document."_string);
 
     // 2. If document's throw-on-dynamic-markup-insertion counter is greater than 0, then throw an "InvalidStateError" DOMException.
     if (m_throw_on_dynamic_markup_insertion_counter > 0)
-        return WebIDL::InvalidStateError::create(realm(), "throw-on-dynamic-markup-insertion-counter greater than zero."_fly_string);
+        return WebIDL::InvalidStateError::create(realm(), "throw-on-dynamic-markup-insertion-counter greater than zero."_string);
 
     // 3. If there is no script-created parser associated with the document, then return.
     if (!m_parser)
@@ -691,15 +715,34 @@ WebIDL::ExceptionOr<void> Document::close()
     // FIXME: 6. Run the tokenizer, processing resulting tokens as they are emitted, and stopping when the tokenizer reaches the explicit "EOF" character or spins the event loop.
     m_parser->run();
 
+    // AD-HOC: This ensures that a load event is fired if the node navigable's container is an iframe.
+    completely_finish_loading();
+
     return {};
 }
 
-HTML::Origin Document::origin() const
+// https://html.spec.whatwg.org/multipage/nav-history-apis.html#dom-document-defaultview
+JS::GCPtr<HTML::WindowProxy> Document::default_view()
+{
+    // If this's browsing context is null, then return null.
+    if (!browsing_context())
+        return {};
+
+    // 2. Return this's browsing context's WindowProxy object.
+    return browsing_context()->window_proxy();
+}
+
+JS::GCPtr<HTML::WindowProxy const> Document::default_view() const
+{
+    return const_cast<Document*>(this)->default_view();
+}
+
+URL::Origin Document::origin() const
 {
     return m_origin;
 }
 
-void Document::set_origin(HTML::Origin const& origin)
+void Document::set_origin(URL::Origin const& origin)
 {
     m_origin = origin;
 }
@@ -807,17 +850,18 @@ void Document::set_dir(String const& dir)
         html->set_dir(dir);
 }
 
+// https://html.spec.whatwg.org/multipage/dom.html#the-body-element-2
 HTML::HTMLElement* Document::body()
 {
+    // The body element of a document is the first of the html element's children that is either
+    // a body element or a frameset element, or null if there is no such element.
     auto* html = html_element();
     if (!html)
         return nullptr;
-    auto* first_body = html->first_child_of_type<HTML::HTMLBodyElement>();
-    if (first_body)
-        return first_body;
-    auto* first_frameset = html->first_child_of_type<HTML::HTMLFrameSetElement>();
-    if (first_frameset)
-        return first_frameset;
+    for (auto* child = html->first_child(); child; child = child->next_sibling()) {
+        if (is<HTML::HTMLBodyElement>(*child) || is<HTML::HTMLFrameSetElement>(*child))
+            return static_cast<HTML::HTMLElement*>(child);
+    }
     return nullptr;
 }
 
@@ -825,7 +869,7 @@ HTML::HTMLElement* Document::body()
 WebIDL::ExceptionOr<void> Document::set_body(HTML::HTMLElement* new_body)
 {
     if (!is<HTML::HTMLBodyElement>(new_body) && !is<HTML::HTMLFrameSetElement>(new_body))
-        return WebIDL::HierarchyRequestError::create(realm(), "Invalid document body element, must be 'body' or 'frameset'"_fly_string);
+        return WebIDL::HierarchyRequestError::create(realm(), "Invalid document body element, must be 'body' or 'frameset'"_string);
 
     auto* existing_body = body();
     if (existing_body) {
@@ -835,7 +879,7 @@ WebIDL::ExceptionOr<void> Document::set_body(HTML::HTMLElement* new_body)
 
     auto* document_element = this->document_element();
     if (!document_element)
-        return WebIDL::HierarchyRequestError::create(realm(), "Missing document element"_fly_string);
+        return WebIDL::HierarchyRequestError::create(realm(), "Missing document element"_string);
 
     (void)TRY(document_element->append_child(*new_body));
     return {};
@@ -887,7 +931,7 @@ WebIDL::ExceptionOr<void> Document::set_title(String const& title)
             element = TRY(DOM::create_element(*this, HTML::TagNames::title, Namespace::SVG));
 
             // 2. Insert element as the first child of the document element.
-            document_element->insert_before(*element, nullptr);
+            document_element->insert_before(*element, document_element->first_child());
         }
 
         // 3. String replace all with the given value within element.
@@ -1045,7 +1089,7 @@ void Document::set_needs_layout()
     schedule_layout_update();
 }
 
-void Document::invalidate_layout()
+void Document::invalidate_layout_tree()
 {
     tear_down_layout_tree();
     schedule_layout_update();
@@ -1100,7 +1144,7 @@ void Document::update_layout()
 
     // NOTE: If our parent document needs a relayout, we must do that *first*.
     //       This is necessary as the parent layout may cause our viewport to change.
-    if (navigable->container())
+    if (navigable->container() && &navigable->container()->document() != this)
         navigable->container()->document().update_layout();
 
     update_style();
@@ -1111,6 +1155,8 @@ void Document::update_layout()
     // NOTE: If this is a document hosting <template> contents, layout is unnecessary.
     if (m_created_for_appropriate_template_contents)
         return;
+
+    invalidate_display_list();
 
     auto* document_element = this->document_element();
     auto viewport_rect = navigable->viewport_rect();
@@ -1125,10 +1171,34 @@ void Document::update_layout()
         }
     }
 
+    // Assign each box that establishes a formatting context a list of absolutely positioned children it should take care of during layout
+    m_layout_root->for_each_in_inclusive_subtree_of_type<Layout::Box>([&](auto& child) {
+        child.clear_contained_abspos_children();
+        return TraversalDecision::Continue;
+    });
+    m_layout_root->for_each_in_inclusive_subtree([&](auto& child) {
+        if (!child.is_absolutely_positioned())
+            return TraversalDecision::Continue;
+        if (auto* containing_block = child.containing_block()) {
+            auto* closest_box_that_establishes_formatting_context = containing_block;
+            while (closest_box_that_establishes_formatting_context) {
+                if (closest_box_that_establishes_formatting_context == m_layout_root)
+                    break;
+                if (Layout::FormattingContext::formatting_context_type_created_by_box(*closest_box_that_establishes_formatting_context).has_value()) {
+                    break;
+                }
+                closest_box_that_establishes_formatting_context = closest_box_that_establishes_formatting_context->containing_block();
+            }
+            VERIFY(closest_box_that_establishes_formatting_context);
+            closest_box_that_establishes_formatting_context->add_contained_abspos_child(child);
+        }
+        return TraversalDecision::Continue;
+    });
+
     Layout::LayoutState layout_state;
 
     {
-        Layout::BlockFormattingContext root_formatting_context(layout_state, *m_layout_root, nullptr);
+        Layout::BlockFormattingContext root_formatting_context(layout_state, Layout::LayoutMode::Normal, *m_layout_root, nullptr);
 
         auto& viewport = static_cast<Layout::Viewport&>(*m_layout_root);
         auto& viewport_state = layout_state.get_mutable(viewport);
@@ -1141,8 +1211,6 @@ void Document::update_layout()
         }
 
         root_formatting_context.run(
-            *m_layout_root,
-            Layout::LayoutMode::Normal,
             Layout::AvailableSpace(
                 Layout::AvailableSize::make_definite(viewport_rect.width()),
                 Layout::AvailableSize::make_definite(viewport_rect.height())));
@@ -1153,17 +1221,20 @@ void Document::update_layout()
     // Broadcast the current viewport rect to any new paintables, so they know whether they're visible or not.
     inform_all_viewport_clients_about_the_current_viewport_rect();
 
-    navigable->set_needs_display();
+    m_document->set_needs_display();
     set_needs_to_resolve_paint_only_properties();
 
     paintable()->assign_scroll_frames();
+
+    // assign_clip_frames() needs border-radius be resolved
+    update_paint_and_hit_testing_properties_if_needed();
     paintable()->assign_clip_frames();
 
     if (navigable->is_traversable()) {
         page().client().page_did_layout();
     }
 
-    paintable()->recompute_selection_states();
+    paintable()->update_selection();
 
     m_needs_layout = false;
 
@@ -1247,8 +1318,11 @@ void Document::update_style()
     style_computer().reset_ancestor_filter();
 
     auto invalidation = update_style_recursively(*this, style_computer());
+    if (!invalidation.is_none()) {
+        invalidate_display_list();
+    }
     if (invalidation.rebuild_layout_tree) {
-        invalidate_layout();
+        invalidate_layout_tree();
     } else {
         if (invalidation.relayout)
             set_needs_layout();
@@ -1262,6 +1336,8 @@ void Document::update_animated_style_if_needed()
 {
     if (!m_needs_animated_style_update)
         return;
+
+    invalidate_display_list();
 
     for (auto& timeline : m_associated_animation_timelines) {
         for (auto& animation : timeline->associated_animations()) {
@@ -1279,11 +1355,16 @@ void Document::update_animated_style_if_needed()
 
 void Document::update_paint_and_hit_testing_properties_if_needed()
 {
+    if (auto* paintable = this->paintable()) {
+        paintable->refresh_scroll_state();
+    }
+
     if (!m_needs_to_resolve_paint_only_properties)
         return;
     m_needs_to_resolve_paint_only_properties = false;
-    if (auto* paintable = this->paintable())
+    if (auto* paintable = this->paintable()) {
         paintable->resolve_paint_only_properties();
+    }
 }
 
 void Document::set_normal_link_color(Color color)
@@ -1316,14 +1397,14 @@ void Document::set_inspected_node(Node* node, Optional<CSS::Selector::PseudoElem
     if (m_inspected_node.ptr() == node && m_inspected_pseudo_element == pseudo_element)
         return;
 
-    if (auto layout_node = inspected_layout_node(); layout_node && layout_node->paintable())
-        layout_node->paintable()->set_needs_display();
+    if (auto layout_node = inspected_layout_node(); layout_node && layout_node->first_paintable())
+        layout_node->first_paintable()->set_needs_display();
 
     m_inspected_node = node;
     m_inspected_pseudo_element = pseudo_element;
 
-    if (auto layout_node = inspected_layout_node(); layout_node && layout_node->paintable())
-        layout_node->paintable()->set_needs_display();
+    if (auto layout_node = inspected_layout_node(); layout_node && layout_node->first_paintable())
+        layout_node->first_paintable()->set_needs_display();
 }
 
 Layout::Node* Document::inspected_layout_node()
@@ -1366,9 +1447,9 @@ void Document::set_hovered_node(Node* node)
 
     auto* common_ancestor = find_common_ancestor(old_hovered_node, m_hovered_node);
     if (common_ancestor)
-        common_ancestor->invalidate_style();
+        common_ancestor->invalidate_style(StyleInvalidationReason::Hover);
     else
-        invalidate_style();
+        invalidate_style(StyleInvalidationReason::Hover);
 
     // https://w3c.github.io/uievents/#mouseout
     if (old_hovered_node && old_hovered_node != m_hovered_node) {
@@ -1415,12 +1496,13 @@ void Document::set_hovered_node(Node* node)
     }
 }
 
+// https://html.spec.whatwg.org/multipage/dom.html#dom-document-getelementsbyname
 JS::NonnullGCPtr<NodeList> Document::get_elements_by_name(FlyString const& name)
 {
     return LiveNodeList::create(realm(), *this, LiveNodeList::Scope::Descendants, [name](auto const& node) {
-        if (!is<Element>(node))
+        if (!is<HTML::HTMLElement>(node))
             return false;
-        return verify_cast<Element>(node).name() == name;
+        return verify_cast<HTML::HTMLElement>(node).name() == name;
     });
 }
 
@@ -1577,7 +1659,7 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Element>> Document::create_element(String c
 
     // 1. If localName does not match the Name production, then throw an "InvalidCharacterError" DOMException.
     if (!is_valid_name(a_local_name))
-        return WebIDL::InvalidCharacterError::create(realm(), "Invalid character in tag name."_fly_string);
+        return WebIDL::InvalidCharacterError::create(realm(), "Invalid character in tag name."_string);
 
     // 2. If this is an HTML document, then set localName to localName in ASCII lowercase.
     if (document_type() == Type::HTML)
@@ -1638,11 +1720,11 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<CDATASection>> Document::create_cdata_secti
 {
     // 1. If this is an HTML document, then throw a "NotSupportedError" DOMException.
     if (is_html_document())
-        return WebIDL::NotSupportedError::create(realm(), "This operation is not supported for HTML documents"_fly_string);
+        return WebIDL::NotSupportedError::create(realm(), "This operation is not supported for HTML documents"_string);
 
     // 2. If data contains the string "]]>", then throw an "InvalidCharacterError" DOMException.
     if (data.contains("]]>"sv))
-        return WebIDL::InvalidCharacterError::create(realm(), "String may not contain ']]>'"_fly_string);
+        return WebIDL::InvalidCharacterError::create(realm(), "String may not contain ']]>'"_string);
 
     // 3. Return a new CDATASection node with its data set to data and node document set to this.
     return heap().allocate<CDATASection>(realm(), *this, data);
@@ -1681,9 +1763,9 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Event>> Document::create_event(StringView i
     // 2. If interface is an ASCII case-insensitive match for any of the strings in the first column in the following table,
     //      then set constructor to the interface in the second column on the same row as the matching string:
     if (Infra::is_ascii_case_insensitive_match(interface, "beforeunloadevent"sv)) {
-        event = Event::create(realm, FlyString {}); // FIXME: Create BeforeUnloadEvent
+        event = HTML::BeforeUnloadEvent::create(realm, FlyString {});
     } else if (Infra::is_ascii_case_insensitive_match(interface, "compositionevent"sv)) {
-        event = Event::create(realm, FlyString {}); // FIXME: Create CompositionEvent
+        event = UIEvents::CompositionEvent::create(realm, String {});
     } else if (Infra::is_ascii_case_insensitive_match(interface, "customevent"sv)) {
         event = CustomEvent::create(realm, FlyString {});
     } else if (Infra::is_ascii_case_insensitive_match(interface, "devicemotionevent"sv)) {
@@ -1713,7 +1795,7 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Event>> Document::create_event(StringView i
     } else if (Infra::is_ascii_case_insensitive_match(interface, "svgevents"sv)) {
         event = Event::create(realm, FlyString {});
     } else if (Infra::is_ascii_case_insensitive_match(interface, "textevent"sv)) {
-        event = Event::create(realm, FlyString {}); // FIXME: Create CompositionEvent
+        event = UIEvents::TextEvent::create(realm, FlyString {});
     } else if (Infra::is_ascii_case_insensitive_match(interface, "touchevent"sv)) {
         event = Event::create(realm, FlyString {}); // FIXME: Create TouchEvent
     } else if (Infra::is_ascii_case_insensitive_match(interface, "uievent"sv)
@@ -1723,7 +1805,7 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Event>> Document::create_event(StringView i
 
     // 3. If constructor is null, then throw a "NotSupportedError" DOMException.
     if (!event) {
-        return WebIDL::NotSupportedError::create(realm, "No constructor for interface found"_fly_string);
+        return WebIDL::NotSupportedError::create(realm, "No constructor for interface found"_string);
     }
 
     // FIXME: 4. If the interface indicated by constructor is not exposed on the relevant global object of this, then throw a "NotSupportedError" DOMException.
@@ -1804,7 +1886,7 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> Document::import_node(JS::NonnullGCP
 {
     // 1. If node is a document or shadow root, then throw a "NotSupportedError" DOMException.
     if (is<Document>(*node) || is<ShadowRoot>(*node))
-        return WebIDL::NotSupportedError::create(realm(), "Cannot import a document or shadow root."_fly_string);
+        return WebIDL::NotSupportedError::create(realm(), "Cannot import a document or shadow root."_string);
 
     // 2. Return a clone of node, with this and the clone children flag set if deep is true.
     return node->clone_node(this, deep);
@@ -1878,10 +1960,10 @@ void Document::adopt_node(Node& node)
 WebIDL::ExceptionOr<JS::NonnullGCPtr<Node>> Document::adopt_node_binding(JS::NonnullGCPtr<Node> node)
 {
     if (is<Document>(*node))
-        return WebIDL::NotSupportedError::create(realm(), "Cannot adopt a document into a document"_fly_string);
+        return WebIDL::NotSupportedError::create(realm(), "Cannot adopt a document into a document"_string);
 
     if (is<ShadowRoot>(*node))
-        return WebIDL::HierarchyRequestError::create(realm(), "Cannot adopt a shadow root into a document"_fly_string);
+        return WebIDL::HierarchyRequestError::create(realm(), "Cannot adopt a shadow root into a document"_string);
 
     if (is<DocumentFragment>(*node) && verify_cast<DocumentFragment>(*node).host())
         return node;
@@ -2236,6 +2318,25 @@ void Document::scroll_to_the_fragment()
     }
 }
 
+// https://html.spec.whatwg.org/multipage/browsing-the-web.html#try-to-scroll-to-the-fragment
+void Document::try_to_scroll_to_the_fragment()
+{
+    // FIXME: According to the spec we should only scroll here if document has no parser or parsing has stopped.
+    //        It should be ok to remove this after we implement navigation events and scrolling will happen in
+    //        "process scroll behavior".
+    //  To try to scroll to the fragment for a Document document, perform the following steps in parallel:
+    //  1. Wait for an implementation-defined amount of time. (This is intended to allow the user agent to
+    //     optimize the user experience in the face of performance concerns.)
+    //  2. Queue a global task on the navigation and traversal task source given document's relevant global
+    //     object to run these steps:
+    //      1. If document has no parser, or its parser has stopped parsing, or the user agent has reason to
+    //         believe the user is no longer interested in scrolling to the fragment, then abort these steps.
+    //      2. Scroll to the fragment given document.
+    //      3. If document's indicated part is still null, then try to scroll to the fragment for document.
+
+    scroll_to_the_fragment();
+}
+
 // https://drafts.csswg.org/cssom-view-1/#scroll-to-the-beginning-of-the-document
 void Document::scroll_to_the_beginning_of_the_document()
 {
@@ -2297,6 +2398,11 @@ void Document::update_readiness(HTML::DocumentReadyState readiness_value)
         } else {
             m_needs_to_call_page_did_load = true;
         }
+    }
+
+    for (auto document_observer : m_document_observers) {
+        if (document_observer->document_readiness_observer())
+            document_observer->document_readiness_observer()->function()(m_readiness);
     }
 }
 
@@ -2398,18 +2504,58 @@ void Document::completely_finish_loading()
     }
 }
 
-String Document::cookie(Cookie::Source source)
+// https://html.spec.whatwg.org/#dom-document-cookie
+WebIDL::ExceptionOr<String> Document::cookie(Cookie::Source source)
 {
+    // On getting, if the document is a cookie-averse Document object, then the user agent must return the empty string.
+    if (is_cookie_averse())
+        return String {};
+
+    // Otherwise, if the Document's origin is an opaque origin, the user agent must throw a "SecurityError" DOMException.
+    if (origin().is_opaque())
+        return WebIDL::SecurityError::create(realm(), "Document origin is opaque"_string);
+
+    // Otherwise, the user agent must return the cookie-string for the document's URL for a "non-HTTP" API, decoded using
+    // UTF-8 decode without BOM.
     return page().client().page_did_request_cookie(m_url, source);
 }
 
-void Document::set_cookie(StringView cookie_string, Cookie::Source source)
+// https://html.spec.whatwg.org/#dom-document-cookie
+WebIDL::ExceptionOr<void> Document::set_cookie(StringView cookie_string, Cookie::Source source)
 {
-    auto cookie = Cookie::parse_cookie(cookie_string);
-    if (!cookie.has_value())
-        return;
+    // On setting, if the document is a cookie-averse Document object, then the user agent must do nothing.
+    if (is_cookie_averse())
+        return {};
 
-    page().client().page_did_set_cookie(m_url, cookie.value(), source);
+    // Otherwise, if the Document's origin is an opaque origin, the user agent must throw a "SecurityError" DOMException.
+    if (origin().is_opaque())
+        return WebIDL::SecurityError::create(realm(), "Document origin is opaque"_string);
+
+    // Otherwise, the user agent must act as it would when receiving a set-cookie-string for the document's URL via a
+    // "non-HTTP" API, consisting of the new value encoded as UTF-8.
+    if (auto cookie = Cookie::parse_cookie(url(), cookie_string); cookie.has_value())
+        page().client().page_did_set_cookie(m_url, cookie.value(), source);
+
+    return {};
+}
+
+// https://html.spec.whatwg.org/#cookie-averse-document-object
+bool Document::is_cookie_averse() const
+{
+    // A Document object that falls into one of the following conditions is a cookie-averse Document object:
+
+    // * A Document object whose browsing context is null.
+    if (!browsing_context())
+        return true;
+
+    // * A Document whose URL's scheme is not an HTTP(S) scheme.
+    if (!url().scheme().is_one_of("http"sv, "https"sv)) {
+        // AD-HOC: This allows us to write cookie integration tests.
+        if (!m_enable_cookies_on_file_domains || url().scheme() != "file"sv)
+            return true;
+    }
+
+    return false;
 }
 
 String Document::fg_color() const
@@ -2533,7 +2679,7 @@ bool Document::is_fully_active() const
         return true;
 
     auto container_document = navigable->container_document();
-    if (container_document && container_document->is_fully_active())
+    if (container_document && container_document != this && container_document->is_fully_active())
         return true;
 
     return false;
@@ -2590,7 +2736,11 @@ void Document::update_the_visibility_state(HTML::VisibilityState visibility_stat
     // 2. Set document's visibility state to visibilityState.
     m_visibility_state = visibility_state;
 
-    // FIXME: 3. Run any page visibility change steps which may be defined in other specifications, with visibility state and document.
+    // 3. Run any page visibility change steps which may be defined in other specifications, with visibility state and document.
+    for (auto document_observer : m_document_observers) {
+        if (document_observer->document_visibility_state_observer())
+            document_observer->document_visibility_state_observer()->function()(m_visibility_state);
+    }
 
     // 4. Fire an event named visibilitychange at document, with its bubbles attribute initialized to true.
     auto event = DOM::Event::create(realm(), HTML::EventNames::visibilitychange);
@@ -2690,15 +2840,15 @@ void Document::evaluate_media_rules()
         return;
 
     bool any_media_queries_changed_match_state = false;
-    for_each_css_style_sheet([&](CSS::CSSStyleSheet& style_sheet) {
+    for_each_active_css_style_sheet([&](CSS::CSSStyleSheet& style_sheet, auto) {
         if (style_sheet.evaluate_media_queries(*window))
             any_media_queries_changed_match_state = true;
     });
 
     if (any_media_queries_changed_match_state) {
         style_computer().invalidate_rule_cache();
-        invalidate_style();
-        invalidate_layout();
+        invalidate_style(StyleInvalidationReason::MediaQueryChangedMatchState);
+        invalidate_layout_tree();
     }
 }
 
@@ -2782,7 +2932,7 @@ bool Document::is_valid_name(String const& name)
 WebIDL::ExceptionOr<Document::PrefixAndTagName> Document::validate_qualified_name(JS::Realm& realm, FlyString const& qualified_name)
 {
     if (qualified_name.is_empty())
-        return WebIDL::InvalidCharacterError::create(realm, "Empty string is not a valid qualified name."_fly_string);
+        return WebIDL::InvalidCharacterError::create(realm, "Empty string is not a valid qualified name."_string);
 
     auto utf8view = qualified_name.code_points();
 
@@ -2794,19 +2944,19 @@ WebIDL::ExceptionOr<Document::PrefixAndTagName> Document::validate_qualified_nam
         auto code_point = *it;
         if (code_point == ':') {
             if (colon_offset.has_value())
-                return WebIDL::InvalidCharacterError::create(realm, "More than one colon (:) in qualified name."_fly_string);
+                return WebIDL::InvalidCharacterError::create(realm, "More than one colon (:) in qualified name."_string);
             colon_offset = utf8view.byte_offset_of(it);
             at_start_of_name = true;
             continue;
         }
         if (at_start_of_name) {
             if (!is_valid_name_start_character(code_point))
-                return WebIDL::InvalidCharacterError::create(realm, "Invalid start of qualified name."_fly_string);
+                return WebIDL::InvalidCharacterError::create(realm, "Invalid start of qualified name."_string);
             at_start_of_name = false;
             continue;
         }
         if (!is_valid_name_character(code_point))
-            return WebIDL::InvalidCharacterError::create(realm, "Invalid character in qualified name."_fly_string);
+            return WebIDL::InvalidCharacterError::create(realm, "Invalid character in qualified name."_string);
     }
 
     if (!colon_offset.has_value())
@@ -2816,10 +2966,10 @@ WebIDL::ExceptionOr<Document::PrefixAndTagName> Document::validate_qualified_nam
         };
 
     if (*colon_offset == 0)
-        return WebIDL::InvalidCharacterError::create(realm, "Qualified name can't start with colon (:)."_fly_string);
+        return WebIDL::InvalidCharacterError::create(realm, "Qualified name can't start with colon (:)."_string);
 
     if (*colon_offset >= (qualified_name.bytes_as_string_view().length() - 1))
-        return WebIDL::InvalidCharacterError::create(realm, "Qualified name can't end with colon (:)."_fly_string);
+        return WebIDL::InvalidCharacterError::create(realm, "Qualified name can't end with colon (:)."_string);
 
     return Document::PrefixAndTagName {
         .prefix = MUST(FlyString::from_utf8(qualified_name.bytes_as_string_view().substring_view(0, *colon_offset))),
@@ -3090,7 +3240,11 @@ Vector<JS::Handle<HTML::Navigable>> Document::descendant_navigables()
                 return TraversalDecision::Continue;
 
             // 2. Extend navigables with navigableContainer's content navigable's active document's inclusive descendant navigables.
-            navigables.extend(navigable_container.content_navigable()->active_document()->inclusive_descendant_navigables());
+            auto document = navigable_container.content_navigable()->active_document();
+            // AD-HOC: If the descendant navigable doesn't have an active document, just skip over it.
+            if (!document)
+                return TraversalDecision::Continue;
+            navigables.extend(document->inclusive_descendant_navigables());
         }
         return TraversalDecision::Continue;
     });
@@ -3215,22 +3369,35 @@ void Document::run_unloading_cleanup_steps()
 // https://html.spec.whatwg.org/multipage/document-lifecycle.html#destroy-a-document
 void Document::destroy()
 {
-    // NOTE: Abort needs to happen before destory. There is currently bug in the spec: https://github.com/whatwg/html/issues/9148
-    // 4. Abort document.
+    // FIXME: 1. Assert: this is running as part of a task queued on document's relevant agent's event loop.
+
+    // 2. Abort document.
     abort();
 
-    // 2. Set document's salvageable state to false.
+    // 3. Set document's salvageable state to false.
     m_salvageable = false;
 
-    // 3. Run any unloading document cleanup steps for document that are defined by this specification and other applicable specifications.
+    // 4. Let ports be the list of MessagePorts whose relevant global object's associated Document is document.
+    // 5. For each port in ports, disentangle port.
+    HTML::MessagePort::for_each_message_port([&](HTML::MessagePort& port) {
+        auto& global = HTML::relevant_global_object(port);
+        if (!is<HTML::Window>(global))
+            return;
+
+        auto& window = static_cast<HTML::Window&>(global);
+        if (&window.associated_document() == this)
+            port.disentangle();
+    });
+
+    // 6. Run any unloading document cleanup steps for document that are defined by this specification and other applicable specifications.
     run_unloading_cleanup_steps();
 
-    // 5. Remove any tasks whose document is document from any task queue (without running those tasks).
+    // 7. Remove any tasks whose document is document from any task queue (without running those tasks).
     HTML::main_thread_event_loop().task_queue().remove_tasks_matching([this](auto& task) {
         return task.document() == this;
     });
 
-    // 6. Set document's browsing context to null.
+    // 8. Set document's browsing context to null.
     m_browsing_context = nullptr;
 
     // Not in the spec:
@@ -3239,14 +3406,12 @@ void Document::destroy()
             HTML::all_navigables().remove(navigable_container->content_navigable());
     }
 
-    // 7. Set document's node navigable's active session history entry's document state's document to null.
-    if (navigable()) {
-        navigable()->active_session_history_entry()->document_state()->set_document(nullptr);
-    }
+    // 9. Set document's node navigable's active session history entry's document state's document to null.
+    if (auto navigable = this->navigable())
+        navigable->active_session_history_entry()->document_state()->set_document(nullptr);
 
-    // FIXME: 8. Remove document from the owner set of each WorkerGlobalScope object whose set contains document.
-
-    // FIXME: 9. For each workletGlobalScope in document's worklet global scopes, terminate workletGlobalScope.
+    // FIXME: 10. Remove document from the owner set of each WorkerGlobalScope object whose set contains document.
+    // FIXME: 11. For each workletGlobalScope in document's worklet global scopes, terminate workletGlobalScope.
 }
 
 // https://html.spec.whatwg.org/multipage/browsing-the-web.html#make-document-unsalvageable
@@ -3290,9 +3455,9 @@ void Document::destroy_a_document_and_its_descendants(JS::GCPtr<JS::HeapFunction
     }
 
     // 5. Wait until numberDestroyed equals childNavigable's size.
-    HTML::main_thread_event_loop().spin_until([&] {
+    HTML::main_thread_event_loop().spin_until(JS::create_heap_function(heap(), [&] {
         return number_destroyed == child_navigables.size();
-    });
+    }));
 
     // 6. Queue a global task on the navigation and traversal task source given document's relevant global object to perform the following steps:
     HTML::queue_global_task(HTML::Task::Source::NavigationAndTraversal, relevant_global_object(*this), JS::create_heap_function(heap(), [after_all_destruction = move(after_all_destruction), this] {
@@ -3387,8 +3552,6 @@ void Document::set_browsing_context(HTML::BrowsingContext* browsing_context)
 // https://html.spec.whatwg.org/multipage/document-lifecycle.html#unload-a-document
 void Document::unload(JS::GCPtr<Document>)
 {
-    auto& vm = this->vm();
-
     // FIXME: 1. Assert: this is running as part of a task queued on oldDocument's event loop.
 
     // FIXME: 2. Let unloadTimingInfo be a new document unload timing info.
@@ -3402,7 +3565,7 @@ void Document::unload(JS::GCPtr<Document>)
     auto intend_to_store_in_bfcache = false;
 
     // 6. Let eventLoop be oldDocument's relevant agent's event loop.
-    auto& event_loop = *verify_cast<Bindings::WebEngineCustomData>(*vm.custom_data()).event_loop;
+    auto& event_loop = *verify_cast<Bindings::WebEngineCustomData>(*HTML::relevant_agent(*this).custom_data()).event_loop;
 
     // 7. Increase eventLoop's termination nesting level by 1.
     event_loop.increment_termination_nesting_level();
@@ -3436,7 +3599,7 @@ void Document::unload(JS::GCPtr<Document>)
         // FIXME: The legacy target override flag is currently set by a virtual override of dispatch_event()
         //        We should reorganize this so that the flag appears explicitly here instead.
         auto event = DOM::Event::create(realm(), HTML::EventNames::unload);
-        global_object().dispatch_event(event);
+        verify_cast<HTML::Window>(relevant_global_object(*this)).dispatch_event(event);
     }
 
     // FIXME: 13. If unloadTimingInfo is not null, then set unloadTimingInfo's unload event end time to the current high resolution time given newDocument's relevant global object, coarsened
@@ -3516,9 +3679,9 @@ void Document::unload_a_document_and_its_descendants(JS::GCPtr<Document> new_doc
         }));
     }
 
-    HTML::main_thread_event_loop().spin_until([&] {
+    HTML::main_thread_event_loop().spin_until(JS::create_heap_function(heap(), [&] {
         return number_unloaded == unloaded_documents_count;
-    });
+    }));
 
     destroy_a_document_and_its_descendants(move(after_all_unloads));
 }
@@ -3622,11 +3785,11 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Attr>> Document::create_attribute(String co
 {
     // 1. If localName does not match the Name production in XML, then throw an "InvalidCharacterError" DOMException.
     if (!is_valid_name(local_name))
-        return WebIDL::InvalidCharacterError::create(realm(), "Invalid character in attribute name."_fly_string);
+        return WebIDL::InvalidCharacterError::create(realm(), "Invalid character in attribute name."_string);
 
     // 2. If this is an HTML document, then set localName to localName in ASCII lowercase.
     // 3. Return a new attribute whose local name is localName and node document is this.
-    return Attr::create(*this, is_html_document() ? MUST(Infra::to_ascii_lowercase(local_name)) : local_name);
+    return Attr::create(*this, is_html_document() ? local_name.to_ascii_lowercase() : local_name);
 }
 
 // https://dom.spec.whatwg.org/#dom-document-createattributens
@@ -3660,7 +3823,9 @@ void Document::make_active()
         m_visibility_state = navigable()->traversable_navigable()->system_visibility_state();
     }
 
-    // 4. Set window's relevant settings object's execution ready flag.
+    // TODO: 4. Queue a new VisibilityStateEntry whose visibility state is document's visibility state and whose timestamp is zero.
+
+    // 5. Set window's relevant settings object's execution ready flag.
     HTML::relevant_settings_object(window).execution_ready = true;
 
     if (m_needs_to_call_page_did_load) {
@@ -4304,11 +4469,8 @@ void Document::update_for_history_step_application(JS::NonnullGCPtr<HTML::Sessio
 
     // 8. If documentIsNew is true, then:
     if (document_is_new) {
-        // FIXME: 1. Try to scroll to the fragment for document.
-        // FIXME: According to the spec we should only scroll here if document has no parser or parsing has stopped.
-        //        It should be ok to remove this after we implement navigation events and scrolling will happen in
-        //        "process scroll behavior".
-        scroll_to_the_fragment();
+        // 1. Try to scroll to the fragment for document.
+        try_to_scroll_to_the_fragment();
 
         // 2. At this point scripts may run for the newly-created document document.
         m_ready_to_run_scripts = true;
@@ -4510,31 +4672,6 @@ void Document::remove_replaced_animations()
     }
 }
 
-void Document::ensure_animation_timer()
-{
-    constexpr static auto timer_delay_ms = 1000 / 60;
-    if (!m_animation_driver_timer) {
-        m_animation_driver_timer = Core::Timer::create_repeating(timer_delay_ms, [this] {
-            bool has_animations = false;
-            for (auto& timeline : m_associated_animation_timelines) {
-                if (!timeline->associated_animations().is_empty()) {
-                    has_animations = true;
-                    break;
-                }
-            }
-            if (!has_animations) {
-                m_animation_driver_timer->stop();
-                return;
-            }
-            auto* window_or_worker = dynamic_cast<HTML::WindowOrWorkerGlobalScopeMixin*>(&realm().global_object());
-            VERIFY(window_or_worker);
-            update_animations_and_send_events(window_or_worker->performance()->now());
-        });
-    }
-
-    m_animation_driver_timer->start();
-}
-
 Vector<JS::NonnullGCPtr<Animations::Animation>> Document::get_animations()
 {
     Vector<JS::NonnullGCPtr<Animations::Animation>> relevant_animations;
@@ -4721,10 +4858,10 @@ Element const* Document::element_from_point(double x, double y)
 }
 
 // https://drafts.csswg.org/cssom-view/#dom-document-elementsfrompoint
-Vector<JS::NonnullGCPtr<Element>> Document::elements_from_point(double x, double y)
+JS::MarkedVector<JS::NonnullGCPtr<Element>> Document::elements_from_point(double x, double y)
 {
     // 1. Let sequence be a new empty sequence.
-    Vector<JS::NonnullGCPtr<Element>> sequence;
+    JS::MarkedVector<JS::NonnullGCPtr<Element>> sequence(heap());
 
     // 2. If either argument is negative, x is greater than the viewport width excluding the size of a rendered scroll bar (if any),
     //    or y is greater than the viewport height excluding the size of a rendered scroll bar (if any),
@@ -4901,38 +5038,44 @@ JS::Value Document::named_item_value(FlyString const& name) const
 }
 
 // https://w3c.github.io/editing/docs/execCommand/#execcommand()
-bool Document::exec_command(String, bool, String)
+bool Document::exec_command(String const& command, bool show_ui, String const& value)
 {
+    dbgln("FIXME: document.execCommand(\"{}\", {}, \"{}\")", command, show_ui, value);
     return false;
 }
 
 // https://w3c.github.io/editing/docs/execCommand/#querycommandenabled()
-bool Document::query_command_enabled(String)
+bool Document::query_command_enabled(String const& command)
 {
+    dbgln("FIXME: document.queryCommandEnabled(\"{}\")", command);
     return false;
 }
 
 // https://w3c.github.io/editing/docs/execCommand/#querycommandindeterm()
-bool Document::query_command_indeterm(String)
+bool Document::query_command_indeterm(String const& command)
 {
+    dbgln("FIXME: document.queryCommandIndeterm(\"{}\")", command);
     return false;
 }
 
 // https://w3c.github.io/editing/docs/execCommand/#querycommandstate()
-bool Document::query_command_state(String)
+bool Document::query_command_state(String const& command)
 {
+    dbgln("FIXME: document.queryCommandState(\"{}\")", command);
     return false;
 }
 
 // https://w3c.github.io/editing/docs/execCommand/#querycommandsupported()
-bool Document::query_command_supported(String)
+bool Document::query_command_supported(String const& command)
 {
+    dbgln("FIXME: document.queryCommandSupported(\"{}\")", command);
     return false;
 }
 
 // https://w3c.github.io/editing/docs/execCommand/#querycommandvalue()
-String Document::query_command_value(String)
+String Document::query_command_value(String const& command)
 {
+    dbgln("FIXME: document.queryCommandValue(\"{}\")", command);
     return String {};
 }
 
@@ -4992,7 +5135,7 @@ size_t Document::broadcast_active_resize_observations()
         }
 
         // 2. Let entries be an empty list of ResizeObserverEntryies.
-        Vector<JS::NonnullGCPtr<ResizeObserver::ResizeObserverEntry>> entries;
+        JS::MarkedVector<JS::NonnullGCPtr<ResizeObserver::ResizeObserverEntry>> entries(heap());
 
         // 3. For each observation in [[activeTargets]] perform these steps:
         for (auto const& observation : observer->active_targets()) {
@@ -5090,21 +5233,97 @@ WebIDL::ExceptionOr<void> Document::set_adopted_style_sheets(JS::Value new_value
     return {};
 }
 
-void Document::for_each_css_style_sheet(Function<void(CSS::CSSStyleSheet&)>&& callback) const
+void Document::for_each_active_css_style_sheet(Function<void(CSS::CSSStyleSheet&, JS::GCPtr<DOM::ShadowRoot>)>&& callback) const
 {
     if (m_style_sheets) {
         for (auto& style_sheet : m_style_sheets->sheets()) {
             if (!(style_sheet->is_alternate() && style_sheet->disabled()))
-                callback(*style_sheet);
+                callback(*style_sheet, {});
         }
     }
 
     if (m_adopted_style_sheets) {
         m_adopted_style_sheets->for_each<CSS::CSSStyleSheet>([&](auto& style_sheet) {
             if (!style_sheet.disabled())
-                callback(style_sheet);
+                callback(style_sheet, {});
         });
     }
+
+    for_each_shadow_root([&](auto& shadow_root) {
+        shadow_root.for_each_css_style_sheet([&](auto& style_sheet) {
+            if (!style_sheet.disabled())
+                callback(style_sheet, &shadow_root);
+        });
+    });
+}
+
+static Optional<CSS::CSSStyleSheet&> find_style_sheet_with_url(String const& url, CSS::CSSStyleSheet& style_sheet)
+{
+    if (style_sheet.location() == url)
+        return style_sheet;
+
+    for (auto& import_rule : style_sheet.import_rules()) {
+        if (import_rule->loaded_style_sheet()) {
+            if (auto match = find_style_sheet_with_url(url, *import_rule->loaded_style_sheet()); match.has_value())
+                return match;
+        }
+    }
+
+    return {};
+}
+
+Optional<String> Document::get_style_sheet_source(CSS::StyleSheetIdentifier const& identifier) const
+{
+    switch (identifier.type) {
+    case CSS::StyleSheetIdentifier::Type::StyleElement:
+        if (identifier.dom_element_unique_id.has_value()) {
+            if (auto* node = Node::from_unique_id(*identifier.dom_element_unique_id)) {
+                if (node->is_html_style_element()) {
+                    if (auto* sheet = verify_cast<HTML::HTMLStyleElement>(*node).sheet())
+                        return sheet->source_text({});
+                }
+                if (node->is_svg_style_element()) {
+                    if (auto* sheet = verify_cast<SVG::SVGStyleElement>(*node).sheet())
+                        return sheet->source_text({});
+                }
+            }
+        }
+        return {};
+    case CSS::StyleSheetIdentifier::Type::LinkElement:
+    case CSS::StyleSheetIdentifier::Type::ImportRule: {
+        if (!identifier.url.has_value()) {
+            dbgln("Attempting to get link or imported style-sheet with no url; giving up");
+            return {};
+        }
+
+        if (m_style_sheets) {
+            for (auto& style_sheet : m_style_sheets->sheets()) {
+                if (auto match = find_style_sheet_with_url(identifier.url.value(), style_sheet); match.has_value())
+                    return match->source_text({});
+            }
+        }
+
+        if (m_adopted_style_sheets) {
+            Optional<String> result;
+            m_adopted_style_sheets->for_each<CSS::CSSStyleSheet>([&](auto& style_sheet) {
+                if (result.has_value())
+                    return;
+
+                if (auto match = find_style_sheet_with_url(identifier.url.value(), style_sheet); match.has_value())
+                    result = match->source_text({});
+            });
+            return result;
+        }
+
+        return {};
+    }
+    case CSS::StyleSheetIdentifier::Type::UserAgent:
+        return CSS::StyleComputer::user_agent_style_sheet_source(identifier.url.value());
+    case CSS::StyleSheetIdentifier::Type::UserStyle:
+        return page().user_style();
+    }
+
+    return {};
 }
 
 void Document::register_shadow_root(Badge<DOM::ShadowRoot>, DOM::ShadowRoot& shadow_root)
@@ -5120,6 +5339,12 @@ void Document::unregister_shadow_root(Badge<DOM::ShadowRoot>, DOM::ShadowRoot& s
 }
 
 void Document::for_each_shadow_root(Function<void(DOM::ShadowRoot&)>&& callback)
+{
+    for (auto& shadow_root : m_shadow_roots)
+        callback(shadow_root);
+}
+
+void Document::for_each_shadow_root(Function<void(DOM::ShadowRoot&)>&& callback) const
 {
     for (auto& shadow_root : m_shadow_roots)
         callback(shadow_root);
@@ -5196,12 +5421,6 @@ void Document::process_top_layer_removals()
     }
 }
 
-void Document::set_needs_to_refresh_clip_state(bool b)
-{
-    if (auto* paintable = this->paintable())
-        paintable->set_needs_to_refresh_clip_state(b);
-}
-
 void Document::set_needs_to_refresh_scroll_state(bool b)
 {
     if (auto* paintable = this->paintable())
@@ -5210,11 +5429,11 @@ void Document::set_needs_to_refresh_scroll_state(bool b)
 
 Vector<JS::Handle<DOM::Range>> Document::find_matching_text(String const& query, CaseSensitivity case_sensitivity)
 {
-    if (!layout_node())
-        return {};
-
     // Ensure the layout tree exists before searching for text matches.
     update_layout();
+
+    if (!layout_node())
+        return {};
 
     auto const& text_blocks = layout_node()->text_blocks();
     if (text_blocks.is_empty())
@@ -5281,8 +5500,7 @@ void Document::parse_html_from_a_string(StringView html)
     auto parser = HTML::HTMLParser::create(*this, html, "UTF-8"sv);
 
     // 4. Start parser and let it run until it has consumed all the characters just inserted into the input stream.
-    // FIXME: This is to match the default URL. Instead, pass in this's relevant global object's associated Document's URL.
-    parser->run("about:blank"sv);
+    parser->run(verify_cast<HTML::Window>(HTML::relevant_global_object(*this)).associated_document().url());
 }
 
 // https://html.spec.whatwg.org/multipage/dynamic-markup-insertion.html#dom-parsehtmlunsafe
@@ -5305,59 +5523,49 @@ JS::NonnullGCPtr<Document> Document::parse_html_unsafe(JS::VM& vm, StringView ht
     return document;
 }
 
-void Document::set_cursor_position(JS::NonnullGCPtr<DOM::Position> position)
+InputEventsTarget* Document::active_input_events_target()
 {
-    if (m_cursor_position && m_cursor_position->equals(position))
-        return;
+    auto* focused_element = this->focused_element();
+    if (!focused_element)
+        return {};
 
-    if (m_cursor_position && m_cursor_position->node()->paintable())
-        m_cursor_position->node()->paintable()->set_needs_display();
-
-    m_cursor_position = position;
-
-    if (m_cursor_position && m_cursor_position->node()->paintable())
-        m_cursor_position->node()->paintable()->set_needs_display();
-
-    reset_cursor_blink_cycle();
+    if (is<HTML::HTMLInputElement>(*focused_element))
+        return static_cast<HTML::HTMLInputElement*>(focused_element);
+    if (is<HTML::HTMLTextAreaElement>(*focused_element))
+        return static_cast<HTML::HTMLTextAreaElement*>(focused_element);
+    if (is<HTML::HTMLElement>(*focused_element) && static_cast<HTML::HTMLElement*>(focused_element)->is_editable())
+        return m_editing_host_manager;
+    return nullptr;
 }
 
-bool Document::increment_cursor_position_offset()
+JS::GCPtr<DOM::Position> Document::cursor_position() const
 {
-    if (!m_cursor_position->increment_offset())
-        return false;
-
-    reset_cursor_blink_cycle();
-    return true;
-}
-
-bool Document::decrement_cursor_position_offset()
-{
-    if (!m_cursor_position->decrement_offset())
-        return false;
-
-    reset_cursor_blink_cycle();
-    return true;
-}
-
-void Document::user_did_edit_document_text(Badge<EditEventHandler>)
-{
-    reset_cursor_blink_cycle();
-
-    if (m_cursor_position && is<DOM::Text>(*m_cursor_position->node())) {
-        auto& text_node = static_cast<DOM::Text&>(*m_cursor_position->node());
-
-        if (auto* text_node_owner = text_node.editable_text_node_owner())
-            text_node_owner->did_edit_text_node({});
+    auto const* focused_element = this->focused_element();
+    if (!focused_element) {
+        return nullptr;
     }
+
+    Optional<HTML::FormAssociatedTextControlElement const&> target {};
+    if (is<HTML::HTMLInputElement>(*focused_element))
+        target = static_cast<HTML::HTMLInputElement const&>(*focused_element);
+    else if (is<HTML::HTMLTextAreaElement>(*focused_element))
+        target = static_cast<HTML::HTMLTextAreaElement const&>(*focused_element);
+
+    if (target.has_value()) {
+        return target->cursor_position();
+    }
+
+    if (is<HTML::HTMLElement>(*focused_element) && static_cast<HTML::HTMLElement const*>(focused_element)->is_editable()) {
+        return m_selection->cursor_position();
+    }
+
+    return nullptr;
 }
 
 void Document::reset_cursor_blink_cycle()
 {
     m_cursor_blink_state = true;
     m_cursor_blink_timer->restart();
-
-    if (m_cursor_position && m_cursor_position->node()->paintable())
-        m_cursor_position->node()->paintable()->set_needs_display();
 }
 
 JS::GCPtr<HTML::Navigable> Document::cached_navigable()
@@ -5368,6 +5576,178 @@ JS::GCPtr<HTML::Navigable> Document::cached_navigable()
 void Document::set_cached_navigable(JS::GCPtr<HTML::Navigable> navigable)
 {
     m_cached_navigable = navigable.ptr();
+}
+
+void Document::set_needs_display(InvalidateDisplayList should_invalidate_display_list)
+{
+    set_needs_display(viewport_rect(), should_invalidate_display_list);
+}
+
+void Document::set_needs_display(CSSPixelRect const&, InvalidateDisplayList should_invalidate_display_list)
+{
+    // FIXME: Ignore updates outside the visible viewport rect.
+    //        This requires accounting for fixed-position elements in the input rect, which we don't do yet.
+
+    m_needs_repaint = true;
+
+    if (should_invalidate_display_list == InvalidateDisplayList::Yes) {
+        invalidate_display_list();
+    }
+
+    auto navigable = this->navigable();
+    if (!navigable)
+        return;
+
+    if (navigable->is_traversable()) {
+        Web::HTML::main_thread_event_loop().schedule();
+        return;
+    }
+
+    if (auto container = navigable->container()) {
+        container->document().set_needs_display(should_invalidate_display_list);
+    }
+}
+
+void Document::invalidate_display_list()
+{
+    m_cached_display_list.clear();
+
+    auto navigable = this->navigable();
+    if (!navigable)
+        return;
+
+    if (auto container = navigable->container()) {
+        container->document().invalidate_display_list();
+    }
+}
+
+RefPtr<Painting::DisplayList> Document::record_display_list(PaintConfig config)
+{
+    if (m_cached_display_list && m_cached_display_list_paint_config == config)
+        return m_cached_display_list;
+
+    auto display_list = Painting::DisplayList::create();
+    Painting::DisplayListRecorder display_list_recorder(display_list);
+
+    if (config.canvas_fill_rect.has_value()) {
+        display_list_recorder.fill_rect(config.canvas_fill_rect.value(), CSS::SystemColor::canvas());
+    }
+
+    auto viewport_rect = page().css_to_device_rect(this->viewport_rect());
+    Gfx::IntRect bitmap_rect { {}, viewport_rect.size().to_type<int>() };
+
+    display_list_recorder.fill_rect(bitmap_rect, background_color());
+    if (!paintable()) {
+        VERIFY_NOT_REACHED();
+    }
+
+    Web::PaintContext context(display_list_recorder, page().palette(), page().client().device_pixels_per_css_pixel());
+    context.set_device_viewport_rect(viewport_rect);
+    context.set_should_show_line_box_borders(config.should_show_line_box_borders);
+    context.set_should_paint_overlay(config.paint_overlay);
+    context.set_has_focus(config.has_focus);
+
+    update_paint_and_hit_testing_properties_if_needed();
+
+    auto& viewport_paintable = *paintable();
+
+    viewport_paintable.refresh_scroll_state();
+
+    viewport_paintable.paint_all_phases(context);
+
+    display_list->set_device_pixels_per_css_pixel(page().client().device_pixels_per_css_pixel());
+    display_list->set_scroll_state(viewport_paintable.scroll_state());
+
+    m_needs_repaint = false;
+
+    m_cached_display_list = display_list;
+    m_cached_display_list_paint_config = config;
+
+    return display_list;
+}
+
+Unicode::Segmenter& Document::grapheme_segmenter() const
+{
+    if (!m_grapheme_segmenter)
+        m_grapheme_segmenter = Unicode::Segmenter::create(Unicode::SegmenterGranularity::Grapheme);
+    return *m_grapheme_segmenter;
+}
+
+Unicode::Segmenter& Document::word_segmenter() const
+{
+    if (!m_word_segmenter)
+        m_word_segmenter = Unicode::Segmenter::create(Unicode::SegmenterGranularity::Word);
+    return *m_word_segmenter;
+}
+
+// https://html.spec.whatwg.org/multipage/browsing-the-web.html#steps-to-fire-beforeunload
+Document::StepsToFireBeforeunloadResult Document::steps_to_fire_beforeunload(bool unload_prompt_shown)
+{
+    // 1. Let unloadPromptCanceled be false.
+    auto unload_prompt_canceled = false;
+
+    // 2. Increase the document's unload counter by 1.
+    m_unload_counter++;
+
+    // 3. Increase document's relevant agent's event loop's termination nesting level by 1.
+    auto& event_loop = *verify_cast<Bindings::WebEngineCustomData>(*HTML::relevant_agent(*this).custom_data()).event_loop;
+    event_loop.increment_termination_nesting_level();
+
+    // 4. Let eventFiringResult be the result of firing an event named beforeunload at document's relevant global object,
+    //    using BeforeUnloadEvent, with the cancelable attribute initialized to true.
+    auto& global_object = HTML::relevant_global_object(*this);
+    auto& window = verify_cast<HTML::Window>(global_object);
+    auto beforeunload_event = HTML::BeforeUnloadEvent::create(realm(), HTML::EventNames::beforeunload);
+    beforeunload_event->set_cancelable(true);
+    auto event_firing_result = window.dispatch_event(*beforeunload_event);
+
+    // 5. Decrease document's relevant agent's event loop's termination nesting level by 1.
+    event_loop.decrement_termination_nesting_level();
+
+    // FIXME: 6. If all of the following are true:
+    if (false &&
+        //    - unloadPromptShown is false;
+        !unload_prompt_shown
+        //    - document's active sandboxing flag set does not have its sandboxed modals flag set;
+        && !has_flag(document().active_sandboxing_flag_set(), HTML::SandboxingFlagSet::SandboxedModals)
+        //    - document's relevant global object has sticky activation;
+        && window.has_sticky_activation()
+        //    - eventFiringResult is false, or the returnValue attribute of event is not the empty string; and
+        && (!event_firing_result || !beforeunload_event->return_value().is_empty())
+        //    - FIXME: showing an unload prompt is unlikely to be annoying, deceptive, or pointless
+    ) {
+        // FIXME: 1. Set unloadPromptShown to true.
+        // FIXME: 2. Invoke WebDriver BiDi user prompt opened with document's relevant global object, "beforeunload", and "".
+        // FIXME: 3. Ask the user to confirm that they wish to unload the document, and pause while waiting for the user's response.
+        // FIXME: 4. If the user did not confirm the page navigation, set unloadPromptCanceled to true.
+        // FIXME: 5. Invoke WebDriver BiDi user prompt closed with document's relevant global object and true if unloadPromptCanceled is false or false otherwise.
+    }
+
+    // 7. Decrease document's unload counter by 1.
+    m_unload_counter--;
+
+    // 8. Return (unloadPromptShown, unloadPromptCanceled).
+    return { unload_prompt_shown, unload_prompt_canceled };
+}
+
+WebIDL::CallbackType* Document::onreadystatechange()
+{
+    return event_handler_attribute(HTML::EventNames::readystatechange);
+}
+
+void Document::set_onreadystatechange(WebIDL::CallbackType* value)
+{
+    set_event_handler_attribute(HTML::EventNames::readystatechange, value);
+}
+
+WebIDL::CallbackType* Document::onvisibilitychange()
+{
+    return event_handler_attribute(HTML::EventNames::visibilitychange);
+}
+
+void Document::set_onvisibilitychange(WebIDL::CallbackType* value)
+{
+    set_event_handler_attribute(HTML::EventNames::visibilitychange, value);
 }
 
 }

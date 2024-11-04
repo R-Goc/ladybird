@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Aliaksandr Kalenik <kalenik.aliaksandr@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -21,7 +21,9 @@
 #include <LibWeb/HTML/SourceSnapshotParams.h>
 #include <LibWeb/HTML/StructuredSerialize.h>
 #include <LibWeb/HTML/TokenizedFeatures.h>
+#include <LibWeb/InvalidateDisplayList.h>
 #include <LibWeb/Page/EventHandler.h>
+#include <LibWeb/Painting/DisplayList.h>
 #include <LibWeb/PixelUnits.h>
 #include <LibWeb/XHR/FormDataEntry.h>
 
@@ -57,6 +59,9 @@ public:
 
     ErrorOr<void> initialize_navigable(JS::NonnullGCPtr<DocumentState> document_state, JS::GCPtr<Navigable> parent);
 
+    void register_navigation_observer(Badge<NavigationObserver>, NavigationObserver&);
+    void unregister_navigation_observer(Badge<NavigationObserver>, NavigationObserver&);
+
     Vector<JS::Handle<Navigable>> child_navigables() const;
 
     bool is_traversable() const;
@@ -67,6 +72,7 @@ public:
 
     bool is_closing() const { return m_closing; }
     void set_closing(bool value) { m_closing = value; }
+    bool is_script_closable();
 
     void set_delaying_load_events(bool value);
     bool is_delaying_load_events() const { return m_delaying_the_load_event.has_value(); }
@@ -129,7 +135,7 @@ public:
         NavigationParamsVariant navigation_params = Empty {},
         CSPNavigationType csp_navigation_type = CSPNavigationType::Other,
         bool allow_POST = false,
-        JS::SafeFunction<void()> completion_steps = [] {});
+        JS::GCPtr<JS::HeapFunction<void()>> completion_steps = {});
 
     struct NavigateParams {
         URL::URL const& url;
@@ -148,8 +154,8 @@ public:
 
     WebIDL::ExceptionOr<void> navigate_to_a_fragment(URL::URL const&, HistoryHandlingBehavior, UserNavigationInvolvement, Optional<SerializationRecord> navigation_api_state, String navigation_id);
 
-    WebIDL::ExceptionOr<JS::GCPtr<DOM::Document>> evaluate_javascript_url(URL::URL const&, Origin const& new_document_origin, String navigation_id);
-    WebIDL::ExceptionOr<void> navigate_to_a_javascript_url(URL::URL const&, HistoryHandlingBehavior, Origin const& initiator_origin, CSPNavigationType csp_navigation_type, String navigation_id);
+    WebIDL::ExceptionOr<JS::GCPtr<DOM::Document>> evaluate_javascript_url(URL::URL const&, URL::Origin const& new_document_origin, String navigation_id);
+    WebIDL::ExceptionOr<void> navigate_to_a_javascript_url(URL::URL const&, HistoryHandlingBehavior, URL::Origin const& initiator_origin, CSPNavigationType csp_navigation_type, String navigation_id);
 
     bool allowed_by_sandboxing_to_navigate(Navigable const& target, SourceSnapshotParams const&);
 
@@ -169,8 +175,7 @@ public:
     void set_viewport_size(CSSPixelSize);
     void perform_scroll_of_viewport(CSSPixelPoint position);
 
-    void set_needs_display();
-    void set_needs_display(CSSPixelRect const&);
+    void set_needs_display(InvalidateDisplayList = InvalidateDisplayList::Yes);
 
     void set_is_popup(TokenizedFeature::Popup is_popup) { m_is_popup = is_popup; }
 
@@ -178,16 +183,6 @@ public:
     [[nodiscard]] bool has_a_rendering_opportunity() const;
 
     [[nodiscard]] TargetSnapshotParams snapshot_target_snapshot_params();
-
-    [[nodiscard]] bool needs_repaint() const { return m_needs_repaint; }
-
-    struct PaintConfig {
-        bool paint_overlay { false };
-        bool should_show_line_box_borders { false };
-        bool has_focus { false };
-        Optional<Gfx::IntRect> canvas_fill_rect {};
-    };
-    RefPtr<Painting::DisplayList> record_display_list(PaintConfig);
 
     Page& page() { return m_page; }
     Page const& page() const { return m_page; }
@@ -240,12 +235,12 @@ private:
 
     JS::NonnullGCPtr<Page> m_page;
 
+    HashTable<JS::NonnullGCPtr<NavigationObserver>> m_navigation_observers;
+
     bool m_has_been_destroyed { false };
 
     CSSPixelSize m_size;
     CSSPixelPoint m_viewport_scroll_offset;
-
-    bool m_needs_repaint { false };
 
     Web::EventHandler m_event_handler;
 };

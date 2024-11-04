@@ -6,9 +6,17 @@
 
 #include <AK/Debug.h>
 #include <LibCore/ArgsParser.h>
+#include <LibCore/Environment.h>
+#include <LibCore/StandardPaths.h>
+#include <LibCore/System.h>
+#include <LibCore/TimeZoneWatcher.h>
+#include <LibFileSystem/FileSystem.h>
 #include <LibImageDecoderClient/Client.h>
 #include <LibWebView/Application.h>
+#include <LibWebView/CookieJar.h>
+#include <LibWebView/Database.h>
 #include <LibWebView/URL.h>
+#include <LibWebView/UserAgent.h>
 #include <LibWebView/WebContentClient.h>
 
 namespace WebView {
@@ -19,6 +27,22 @@ Application::Application()
 {
     VERIFY(!s_the);
     s_the = this;
+
+    // No need to monitor the system time zone if the TZ environment variable is set, as it overrides system preferences.
+    if (!Core::Environment::has("TZ"sv)) {
+        if (auto time_zone_watcher = Core::TimeZoneWatcher::create(); time_zone_watcher.is_error()) {
+            warnln("Unable to monitor system time zone: {}", time_zone_watcher.error());
+        } else {
+            m_time_zone_watcher = time_zone_watcher.release_value();
+
+            m_time_zone_watcher->on_time_zone_changed = []() {
+                WebContentClient::for_each_client([&](WebView::WebContentClient& client) {
+                    client.async_system_time_zone_changed();
+                    return IterationDecision::Continue;
+                });
+            };
+        }
+    }
 
     m_process_manager.on_process_exited = [this](Process&& process) {
         process_did_exit(move(process));
@@ -32,20 +56,29 @@ Application::~Application()
 
 void Application::initialize(Main::Arguments const& arguments, URL::URL new_tab_page_url)
 {
+    // Increase the open file limit, as the default limits on Linux cause us to run out of file descriptors with around 15 tabs open.
+    if (auto result = Core::System::set_resource_limits(RLIMIT_NOFILE, 8192); result.is_error())
+        warnln("Unable to increase open file limit: {}", result.error());
+
     Vector<ByteString> raw_urls;
     Vector<ByteString> certificates;
     bool new_window = false;
     bool force_new_process = false;
     bool allow_popups = false;
+    bool disable_scripting = false;
     bool disable_sql_database = false;
     Optional<StringView> debug_process;
     Optional<StringView> profile_process;
     Optional<StringView> webdriver_content_ipc_path;
+    Optional<StringView> user_agent_preset;
     bool log_all_js_exceptions = false;
     bool enable_idl_tracing = false;
     bool enable_http_cache = false;
+    bool enable_autoplay = false;
     bool expose_internals_object = false;
     bool force_cpu_painting = false;
+    bool force_fontconfig = false;
+    bool collect_garbage_on_every_allocation = false;
 
     Core::ArgsParser args_parser;
     args_parser.set_general_help("The Ladybird web browser :^)");
@@ -54,6 +87,7 @@ void Application::initialize(Main::Arguments const& arguments, URL::URL new_tab_
     args_parser.add_option(new_window, "Force opening in a new window", "new-window", 'n');
     args_parser.add_option(force_new_process, "Force creation of new browser/chrome process", "force-new-process");
     args_parser.add_option(allow_popups, "Disable popup blocking by default", "allow-popups");
+    args_parser.add_option(disable_scripting, "Disable scripting by default", "disable-scripting");
     args_parser.add_option(disable_sql_database, "Disable SQL database", "disable-sql-database");
     args_parser.add_option(debug_process, "Wait for a debugger to attach to the given process name (WebContent, RequestServer, etc.)", "debug-process", 0, "process-name");
     args_parser.add_option(profile_process, "Enable callgrind profiling of the given process name (WebContent, RequestServer, etc.)", "profile-process", 0, "process-name");
@@ -61,11 +95,29 @@ void Application::initialize(Main::Arguments const& arguments, URL::URL new_tab_
     args_parser.add_option(log_all_js_exceptions, "Log all JavaScript exceptions", "log-all-js-exceptions");
     args_parser.add_option(enable_idl_tracing, "Enable IDL tracing", "enable-idl-tracing");
     args_parser.add_option(enable_http_cache, "Enable HTTP cache", "enable-http-cache");
+    args_parser.add_option(enable_autoplay, "Enable multimedia autoplay", "enable-autoplay");
     args_parser.add_option(expose_internals_object, "Expose internals object", "expose-internals-object");
     args_parser.add_option(force_cpu_painting, "Force CPU painting", "force-cpu-painting");
+    args_parser.add_option(force_fontconfig, "Force using fontconfig for font loading", "force-fontconfig");
+    args_parser.add_option(collect_garbage_on_every_allocation, "Collect garbage after every JS heap allocation", "collect-garbage-on-every-allocation", 'g');
+    args_parser.add_option(Core::ArgsParser::Option {
+        .argument_mode = Core::ArgsParser::OptionArgumentMode::Required,
+        .help_string = "Name of the User-Agent preset to use in place of the default User-Agent",
+        .long_name = "user-agent-preset",
+        .value_name = "name",
+        .accept_value = [&](StringView value) {
+            user_agent_preset = normalize_user_agent_name(value);
+            return user_agent_preset.has_value();
+        },
+    });
 
     create_platform_arguments(args_parser);
     args_parser.parse(arguments);
+
+    // Our persisted SQL storage assumes it runs in a singleton process. If we have multiple UI processes accessing
+    // the same underlying database, one of them is likely to fail.
+    if (force_new_process)
+        disable_sql_database = true;
 
     Optional<ProcessType> debug_process_type;
     Optional<ProcessType> profile_process_type;
@@ -83,6 +135,7 @@ void Application::initialize(Main::Arguments const& arguments, URL::URL new_tab_
         .new_window = new_window ? NewWindow::Yes : NewWindow::No,
         .force_new_process = force_new_process ? ForceNewProcess::Yes : ForceNewProcess::No,
         .allow_popups = allow_popups ? AllowPopups::Yes : AllowPopups::No,
+        .disable_scripting = disable_scripting ? DisableScripting::Yes : DisableScripting::No,
         .disable_sql_database = disable_sql_database ? DisableSQLDatabase::Yes : DisableSQLDatabase::No,
         .debug_helper_process = move(debug_process_type),
         .profile_helper_process = move(profile_process_type),
@@ -94,14 +147,25 @@ void Application::initialize(Main::Arguments const& arguments, URL::URL new_tab_
     m_web_content_options = {
         .command_line = MUST(String::join(' ', arguments.strings)),
         .executable_path = MUST(String::from_byte_string(MUST(Core::System::current_executable_path()))),
+        .user_agent_preset = move(user_agent_preset),
         .log_all_js_exceptions = log_all_js_exceptions ? LogAllJSExceptions::Yes : LogAllJSExceptions::No,
         .enable_idl_tracing = enable_idl_tracing ? EnableIDLTracing::Yes : EnableIDLTracing::No,
         .enable_http_cache = enable_http_cache ? EnableHTTPCache::Yes : EnableHTTPCache::No,
         .expose_internals_object = expose_internals_object ? ExposeInternalsObject::Yes : ExposeInternalsObject::No,
         .force_cpu_painting = force_cpu_painting ? ForceCPUPainting::Yes : ForceCPUPainting::No,
+        .force_fontconfig = force_fontconfig ? ForceFontconfig::Yes : ForceFontconfig::No,
+        .enable_autoplay = enable_autoplay ? EnableAutoplay::Yes : EnableAutoplay::No,
+        .collect_garbage_on_every_allocation = collect_garbage_on_every_allocation ? CollectGarbageOnEveryAllocation::Yes : CollectGarbageOnEveryAllocation::No,
     };
 
     create_platform_options(m_chrome_options, m_web_content_options);
+
+    if (m_chrome_options.disable_sql_database == DisableSQLDatabase::No) {
+        m_database = Database::create().release_value_but_fixme_should_propagate_errors();
+        m_cookie_jar = CookieJar::create(*m_database).release_value_but_fixme_should_propagate_errors();
+    } else {
+        m_cookie_jar = CookieJar::create();
+    }
 }
 
 int Application::execute()
@@ -171,6 +235,24 @@ void Application::process_did_exit(Process&& process)
         dbgln("Invalid process type to be dying: Chrome");
         VERIFY_NOT_REACHED();
     }
+}
+
+ErrorOr<LexicalPath> Application::path_for_downloaded_file(StringView file) const
+{
+    auto downloads_directory = Core::StandardPaths::downloads_directory();
+
+    if (!FileSystem::is_directory(downloads_directory)) {
+        auto maybe_downloads_directory = ask_user_for_download_folder();
+        if (!maybe_downloads_directory.has_value())
+            return Error::from_errno(ECANCELED);
+
+        downloads_directory = maybe_downloads_directory.release_value();
+    }
+
+    if (!FileSystem::is_directory(downloads_directory))
+        return Error::from_errno(ENOENT);
+
+    return LexicalPath::join(downloads_directory, file);
 }
 
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2021, Sam Atkins <atkinssj@serenityos.org>
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021-2024, Sam Atkins <sam@ladybird.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -11,21 +11,15 @@
 
 namespace Web::CSS {
 
-CSSConditionRule::CSSConditionRule(JS::Realm& realm, CSSRuleList& rules)
-    : CSSGroupingRule(realm, rules)
+CSSConditionRule::CSSConditionRule(JS::Realm& realm, CSSRuleList& rules, Type type)
+    : CSSGroupingRule(realm, rules, type)
 {
 }
 
-void CSSConditionRule::for_each_effective_style_rule(Function<void(CSSStyleRule const&)> const& callback) const
+void CSSConditionRule::for_each_effective_rule(TraversalOrder order, Function<void(Web::CSS::CSSRule const&)> const& callback) const
 {
     if (condition_matches())
-        CSSGroupingRule::for_each_effective_style_rule(callback);
-}
-
-void CSSConditionRule::for_each_effective_keyframes_at_rule(Function<void(CSSKeyframesRule const&)> const& callback) const
-{
-    if (condition_matches())
-        CSSGroupingRule::for_each_effective_keyframes_at_rule(callback);
+        CSSGroupingRule::for_each_effective_rule(order, callback);
 }
 
 void CSSConditionRule::initialize(JS::Realm& realm)

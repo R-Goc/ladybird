@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -33,6 +33,7 @@ public:
 
     virtual Gfx::Font& default_font() = 0;
     virtual Gfx::Font& default_fixed_width_font() = 0;
+    virtual RefPtr<Gfx::Font> default_emoji_font(float point_size) = 0;
 
     virtual FlyString generic_font_name(GenericFont) = 0;
 };

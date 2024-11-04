@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibGfx/Path.h>
 #include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/Bindings/SVGRectElementPrototype.h>
 #include <LibWeb/SVG/AttributeNames.h>
@@ -105,6 +106,8 @@ Gfx::Path SVGRectElement::get_path(CSSPixelSize)
     //    using the same parameters as previously.
     if (rx > 0 && ry > 0)
         path.elliptical_arc_to({ x + rx, y }, corner_radii, x_axis_rotation, large_arc_flag, sweep_flag);
+
+    path.close();
 
     return path;
 }

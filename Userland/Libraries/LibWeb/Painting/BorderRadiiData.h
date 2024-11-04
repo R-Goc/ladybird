@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -17,7 +17,7 @@ struct BorderRadiusData {
     CSSPixels horizontal_radius { 0 };
     CSSPixels vertical_radius { 0 };
 
-    Gfx::AntiAliasingPainter::CornerRadius as_corner(PaintContext const& context) const;
+    Gfx::CornerRadius as_corner(PaintContext const& context) const;
 
     inline operator bool() const
     {
@@ -39,7 +39,7 @@ struct BorderRadiusData {
     }
 };
 
-using CornerRadius = Gfx::AntiAliasingPainter::CornerRadius;
+using CornerRadius = Gfx::CornerRadius;
 
 struct CornerRadii {
     CornerRadius top_left;

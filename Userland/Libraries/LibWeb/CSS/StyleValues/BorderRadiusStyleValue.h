@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022-2023, MacDue <macdue@dueutil.tech>
@@ -9,9 +9,9 @@
 
 #pragma once
 
+#include <LibWeb/CSS/CSSStyleValue.h>
 #include <LibWeb/CSS/Length.h>
 #include <LibWeb/CSS/PercentageOr.h>
-#include <LibWeb/CSS/StyleValue.h>
 
 namespace Web::CSS {
 
@@ -38,7 +38,7 @@ private:
     {
     }
 
-    virtual ValueComparingNonnullRefPtr<StyleValue const> absolutized(CSSPixelRect const& viewport_rect, Length::FontMetrics const& font_metrics, Length::FontMetrics const& root_font_metrics) const override;
+    virtual ValueComparingNonnullRefPtr<CSSStyleValue const> absolutized(CSSPixelRect const& viewport_rect, Length::FontMetrics const& font_metrics, Length::FontMetrics const& root_font_metrics) const override;
 
     struct Properties {
         bool is_elliptical;

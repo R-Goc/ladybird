@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2023, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, the SerenityOS developers.
  * Copyright (c) 2021, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2023, Srikavin Ramkumar <me@srikavin.me>
@@ -19,6 +19,7 @@
 #include <LibWeb/DOM/ShadowRoot.h>
 #include <LibWeb/Fetch/Fetching/Fetching.h>
 #include <LibWeb/Fetch/Infrastructure/FetchAlgorithms.h>
+#include <LibWeb/Fetch/Infrastructure/FetchController.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Requests.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Responses.h>
 #include <LibWeb/HTML/EventNames.h>
@@ -136,7 +137,7 @@ void HTMLLinkElement::attribute_changed(FlyString const& name, Optional<String> 
     if (name == HTML::AttributeNames::rel) {
         m_relationship = 0;
         // Keywords are always ASCII case-insensitive, and must be compared as such.
-        auto lowercased_value = MUST(Infra::to_ascii_lowercase(value.value_or(String {})));
+        auto lowercased_value = value.value_or(String {}).to_ascii_lowercase();
         // To determine which link types apply to a link, a, area, or form element,
         // the element's rel attribute must be split on ASCII whitespace.
         // The resulting tokens are the keywords for the link types that apply to that element.
@@ -364,7 +365,9 @@ void HTMLLinkElement::default_fetch_and_process_linked_resource()
         process_linked_resource(success, response, body_bytes);
     };
 
-    Fetch::Fetching::fetch(realm(), *request, Fetch::Infrastructure::FetchAlgorithms::create(vm(), move(fetch_algorithms_input))).release_value_but_fixme_should_propagate_errors();
+    if (m_fetch_controller)
+        m_fetch_controller->abort(realm(), {});
+    m_fetch_controller = MUST(Fetch::Fetching::fetch(realm(), *request, Fetch::Infrastructure::FetchAlgorithms::create(vm(), move(fetch_algorithms_input))));
 }
 
 // https://html.spec.whatwg.org/multipage/links.html#link-type-stylesheet:process-the-linked-resource
@@ -391,7 +394,7 @@ void HTMLLinkElement::process_stylesheet_resource(bool success, Fetch::Infrastru
         //        type
         //            text/css
         //        location
-        //            The resulting URL string determined during the fetch and process the linked resource algorithm.
+        //            response's URL list[0]
         //        owner node
         //            element
         //        media
@@ -438,6 +441,10 @@ void HTMLLinkElement::process_stylesheet_resource(bool success, Fetch::Infrastru
                 m_loaded_style_sheet = parse_css_stylesheet(CSS::Parser::ParsingContext(document(), *response.url()), decoded_string);
 
                 if (m_loaded_style_sheet) {
+                    Optional<String> location;
+                    if (!response.url_list().is_empty())
+                        location = MUST(response.url_list().first().to_string());
+
                     document().style_sheets().create_a_css_style_sheet(
                         "text/css"_string,
                         this,
@@ -445,7 +452,7 @@ void HTMLLinkElement::process_stylesheet_resource(bool success, Fetch::Infrastru
                         in_a_document_tree() ? attribute(HTML::AttributeNames::title).value_or({}) : String {},
                         m_relationship & Relationship::Alternate && !m_explicitly_enabled,
                         true,
-                        {},
+                        move(location),
                         nullptr,
                         nullptr,
                         *m_loaded_style_sheet);
@@ -520,16 +527,17 @@ void HTMLLinkElement::resource_did_load_favicon()
     document().check_favicon_after_loading_link_resource();
 }
 
-static NonnullRefPtr<Core::Promise<Web::Platform::DecodedImage>> decode_favicon(ReadonlyBytes favicon_data, URL::URL const& favicon_url, JS::GCPtr<Navigable> navigable)
+static NonnullRefPtr<Core::Promise<Web::Platform::DecodedImage>> decode_favicon(ReadonlyBytes favicon_data, URL::URL const& favicon_url, JS::NonnullGCPtr<DOM::Document> document)
 {
     auto on_failed_decode = [favicon_url]([[maybe_unused]] Error& error) {
         dbgln_if(IMAGE_DECODER_DEBUG, "Failed to decode favicon {}: {}", favicon_url, error);
     };
 
-    auto on_successful_decode = [navigable = JS::Handle(*navigable)](Web::Platform::DecodedImage& decoded_image) -> ErrorOr<void> {
+    auto on_successful_decode = [document = JS::Handle(document)](Web::Platform::DecodedImage& decoded_image) -> ErrorOr<void> {
         auto favicon_bitmap = decoded_image.frames[0].bitmap;
         dbgln_if(IMAGE_DECODER_DEBUG, "Decoded favicon, {}", favicon_bitmap->size());
 
+        auto navigable = document->navigable();
         if (navigable && navigable->is_traversable())
             navigable->traversable_navigable()->page().client().page_did_change_favicon(*favicon_bitmap);
 
@@ -547,7 +555,7 @@ bool HTMLLinkElement::load_favicon_and_use_if_window_is_active()
         return false;
 
     // FIXME: Refactor the caller(s) to handle the async nature of image loading
-    auto promise = decode_favicon(resource()->encoded_data(), resource()->url(), navigable());
+    auto promise = decode_favicon(resource()->encoded_data(), resource()->url(), document());
     auto result = promise->await();
     return !result.is_error();
 }
@@ -583,7 +591,7 @@ WebIDL::ExceptionOr<void> HTMLLinkElement::load_fallback_favicon_if_needed(JS::N
         auto global = JS::NonnullGCPtr { realm.global_object() };
 
         auto process_body = JS::create_heap_function(realm.heap(), [document, request](ByteBuffer body) {
-            (void)decode_favicon(body, request->url(), document->navigable());
+            (void)decode_favicon(body, request->url(), document);
         });
         auto process_body_error = JS::create_heap_function(realm.heap(), [](JS::Value) {
         });
@@ -605,6 +613,7 @@ WebIDL::ExceptionOr<void> HTMLLinkElement::load_fallback_favicon_if_needed(JS::N
 void HTMLLinkElement::visit_edges(Cell::Visitor& visitor)
 {
     Base::visit_edges(visitor);
+    visitor.visit(m_fetch_controller);
     visitor.visit(m_loaded_style_sheet);
     visitor.visit(m_rel_list);
 }

@@ -16,14 +16,24 @@ on:
           required: false
           type: string
           default: 'NO_FUZZ'
+        clang_plugins:
+          required: false
+          type: boolean
+          default: false
 
 env:
-  # runner.workspace = /home/runner/work/serenity
-  # github.workspace = /home/runner/work/serenity/serenity
+  # runner.workspace = /home/runner/work/ladybird
+  # github.workspace = /home/runner/work/ladybird/ladybird
   LADYBIRD_SOURCE_DIR: ${{ github.workspace }}
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   VCPKG_ROOT:  ${{ github.workspace }}/Toolchain/Tarballs/vcpkg
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+  # Use the compiler version for the ccache compiler hash. Otherwise, if plugins are enabled, the plugin .so files
+  # are included in the hash. This results in clean builds on every run as the .so files are rebuilt.
+  #
+  # Note: This only works because our plugins do not transform any code. If that becomes untrue, we must revisit this.
+  CCACHE_COMPILERCHECK: "%compiler% -v"
 
 jobs:
   CI:
@@ -49,17 +59,6 @@ jobs:
 
       # === PREPARE FOR BUILDING ===
 
-      - name: Restore Caches
-        uses: ./.github/actions/cache-restore
-        id: 'cache-restore'
-        with:
-          os: ${{ inputs.os_name }}
-          arch: 'Lagom'
-          toolchain: ${{ inputs.toolchain }}
-          cache_key_extra: ${{ inputs.fuzzer }}
-          serenity_ccache_path: ${{ env.CCACHE_DIR }}
-          download_cache_path: ${{ github.workspace }}/Build/caches
-
       - name: Assign Build Parameters
         id: 'build-parameters'
         run: |
@@ -67,24 +66,35 @@ jobs:
             if ${{ inputs.toolchain == 'Clang' }} ; then
               echo "host_cc=clang-18" >> "$GITHUB_OUTPUT"
               echo "host_cxx=clang++-18" >> "$GITHUB_OUTPUT"
-              if ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }} ; then
-                echo "extra_cmake_options=-DENABLE_CLANG_PLUGINS=ON" >> "$GITHUB_OUTPUT"
-              else
-                echo "extra_cmake_options=" >> "$GITHUB_OUTPUT"
-              fi
             elif ${{ inputs.toolchain == 'GNU' }} ; then
               echo "host_cc=gcc-13" >> "$GITHUB_OUTPUT"
               echo "host_cxx=g++-13" >> "$GITHUB_OUTPUT"
-              echo "extra_cmake_options=" >> "$GITHUB_OUTPUT"
             fi
           elif ${{ inputs.os_name == 'macOS' }} ; then
             echo "host_cc=$(xcrun --find clang)" >> "$GITHUB_OUTPUT"
             echo "host_cxx=$(xcrun --find clang++)" >> "$GITHUB_OUTPUT"
-            echo "extra_cmake_options=" >> "$GITHUB_OUTPUT"
           fi
 
+          if ${{ inputs.clang_plugins }} ; then
+            echo "ccache_key=${{ inputs.fuzzer }}-CLANG_PLUGINS" >> "$GITHUB_OUTPUT"
+            echo "cmake_options=-DENABLE_CLANG_PLUGINS=ON" >> "$GITHUB_OUTPUT"
+          else
+            echo "ccache_key=${{ inputs.fuzzer }}" >> "$GITHUB_OUTPUT"
+            echo "cmake_options=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore Caches
+        uses: ./.github/actions/cache-restore
+        id: 'cache-restore'
+        with:
+          os: ${{ inputs.os_name }}
+          arch: 'Lagom'
+          toolchain: ${{ inputs.toolchain }}
+          cache_key_extra: ${{ steps.build-parameters.outputs.ccache_key }}
+          ccache_path: ${{ env.CCACHE_DIR }}
+          download_cache_path: ${{ github.workspace }}/Build/caches
+
       - name: Set dynamic environment variables
-        id: 'set-env-vars'
         run: |
           # Note: Required for vcpkg to use this compiler for its own builds.
           echo "CC=${{ steps.build-parameters.outputs.host_cc }}" >> "$GITHUB_ENV"
@@ -102,7 +112,8 @@ jobs:
           cmake --preset Sanitizer_CI -B Build \
             -DINCLUDE_WASM_SPEC_TESTS=ON \
             -DWASM_SPEC_TEST_SKIP_FORMATTING=ON \
-            ${{ steps.build-parameters.outputs.extra_cmake_options }} \
+            ${{ steps.build-parameters.outputs.cmake_options }} \
+            -DPython3_EXECUTABLE=${{ env.pythonLocation }}/bin/python \
             -DCMAKE_C_COMPILER=${{ steps.build-parameters.outputs.host_cc }} \
             -DCMAKE_CXX_COMPILER=${{ steps.build-parameters.outputs.host_cxx }}
 
@@ -116,6 +127,7 @@ jobs:
             -DLAGOM_TOOLS_ONLY=ON \
             -DINSTALL_LAGOM_TOOLS=ON \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/Build/tools-install \
+            -DPython3_EXECUTABLE=${{ env.pythonLocation }}/bin/python \
             -DCMAKE_C_COMPILER=gcc-13 \
             -DCMAKE_CXX_COMPILER=g++-13 \
             -Dpackage=LagomTools
@@ -123,6 +135,7 @@ jobs:
           ninja -C ${{ github.workspace }}/Build/tools-build install
 
           cmake --preset Fuzzers_CI -B Build \
+            -DPython3_EXECUTABLE=${{ env.pythonLocation }}/bin/python \
             -DCMAKE_C_COMPILER=${{ steps.build-parameters.outputs.host_cc }} \
             -DCMAKE_CXX_COMPILER=${{ steps.build-parameters.outputs.host_cxx }} \
             -DCMAKE_PREFIX_PATH=${{ github.workspace }}/Build/tools-install
@@ -149,7 +162,8 @@ jobs:
       - name: Enable the AppKit chrome with Swift files
         if: ${{ inputs.os_name == 'macOS' && inputs.fuzzer == 'NO_FUZZ' }}
         working-directory: ${{ github.workspace }}
-        run: cmake -B Build -DENABLE_QT=OFF -DENABLE_SWIFT=ON
+        # FIXME: Don't force release build after https://github.com/LadybirdBrowser/ladybird/issues/1101 is fixed
+        run: cmake -B Build -DENABLE_QT=OFF -DENABLE_SWIFT=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
       - name: Build the AppKit chrome with Swift files
         if: ${{ inputs.os_name == 'macOS' && inputs.fuzzer == 'NO_FUZZ' }}
@@ -160,8 +174,8 @@ jobs:
         uses: ./.github/actions/cache-save
         with:
           arch: 'Lagom'
-          serenity_ccache_path: ${{ env.CCACHE_DIR }}
-          serenity_ccache_primary_key: ${{ steps.cache-restore.outputs.serenity_ccache_primary_key }}
+          ccache_path: ${{ env.CCACHE_DIR }}
+          ccache_primary_key: ${{ steps.cache-restore.outputs.ccache_primary_key }}
 
       # === TEST ===
 

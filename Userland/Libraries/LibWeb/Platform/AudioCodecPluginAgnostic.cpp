@@ -5,11 +5,12 @@
  */
 
 #include <AK/MemoryStream.h>
+#include <AK/String.h>
 #include <AK/WeakPtr.h>
-#include <LibAudio/Loader.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/ThreadedPromise.h>
 #include <LibCore/Timer.h>
+#include <LibMedia/Audio/Loader.h>
 
 #include "AudioCodecPluginAgnostic.h"
 
@@ -45,8 +46,8 @@ ErrorOr<NonnullOwnPtr<AudioCodecPluginAgnostic>> AudioCodecPluginAgnostic::creat
             VERIFY(format == Audio::PcmSampleFormat::Float32);
 
             auto samples_result = loader->get_more_samples(sample_count);
-
             if (samples_result.is_error()) {
+                dbgln("Error while loading samples: {}", samples_result.error());
                 plugin.on_decoder_error(MUST(String::formatted("Decoding failure: {}", samples_result.error())));
                 return buffer.trim(0);
             }

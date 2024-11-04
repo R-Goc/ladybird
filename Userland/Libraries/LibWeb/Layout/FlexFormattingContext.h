@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2024, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021-2024, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -13,18 +13,18 @@ namespace Web::Layout {
 
 class FlexFormattingContext final : public FormattingContext {
 public:
-    FlexFormattingContext(LayoutState&, Box const& flex_container, FormattingContext* parent);
+    FlexFormattingContext(LayoutState&, LayoutMode, Box const& flex_container, FormattingContext* parent);
     ~FlexFormattingContext();
 
     virtual bool inhibits_floating() const override { return true; }
 
-    virtual void run(Box const&, LayoutMode, AvailableSpace const&) override;
+    virtual void run(AvailableSpace const&) override;
     virtual CSSPixels automatic_content_width() const override;
     virtual CSSPixels automatic_content_height() const override;
 
     Box const& flex_container() const { return context_box(); }
 
-    virtual CSSPixelPoint calculate_static_position(Box const&) const override;
+    StaticPositionRect calculate_static_position_rect(Box const&) const;
 
 private:
     [[nodiscard]] bool should_treat_main_size_as_auto(Box const&) const;
@@ -34,6 +34,8 @@ private:
     [[nodiscard]] bool should_treat_cross_max_size_as_none(Box const&) const;
 
     [[nodiscard]] CSSPixels adjust_main_size_through_aspect_ratio_for_cross_size_min_max_constraints(Box const&, CSSPixels main_size, CSS::Size const& min_cross_size, CSS::Size const& max_cross_size) const;
+    [[nodiscard]] CSSPixels adjust_cross_size_through_aspect_ratio_for_main_size_min_max_constraints(Box const&, CSSPixels cross_size, CSS::Size const& min_main_size, CSS::Size const& max_main_size) const;
+
     [[nodiscard]] CSSPixels calculate_main_size_from_cross_size_and_aspect_ratio(CSSPixels cross_size, CSSPixelFraction aspect_ratio) const;
     [[nodiscard]] CSSPixels calculate_cross_size_from_main_size_and_aspect_ratio(CSSPixels main_size, CSSPixelFraction aspect_ratio) const;
 

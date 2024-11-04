@@ -74,6 +74,8 @@ static Optional<FileWatcherEvent> get_event_from_fd(int fd, HashMap<unsigned, By
         result.type |= FileWatcherEvent::Type::ContentModified;
     if ((event->mask & IN_ATTRIB) != 0)
         result.type |= FileWatcherEvent::Type::MetadataModified;
+    if ((event->mask & IN_IGNORED) != 0)
+        return {};
 
     if (result.type == FileWatcherEvent::Type::Invalid) {
         warnln("Unknown event type {:x} returned by the watch_file descriptor for {}", event->mask, path);
@@ -109,7 +111,6 @@ FileWatcher::FileWatcher(int watcher_fd, NonnullRefPtr<Notifier> notifier)
         auto maybe_event = get_event_from_fd(m_notifier->fd(), m_wd_to_path);
         if (maybe_event.has_value()) {
             auto event = maybe_event.value();
-            on_change(event);
 
             if (has_flag(event.type, FileWatcherEvent::Type::Deleted)) {
                 auto result = remove_watch(event.event_path);
@@ -117,6 +118,8 @@ FileWatcher::FileWatcher(int watcher_fd, NonnullRefPtr<Notifier> notifier)
                     dbgln_if(FILE_WATCHER_DEBUG, "on_ready_to_read: {}", result.error());
                 }
             }
+
+            on_change(event);
         }
     };
 }
@@ -142,6 +145,8 @@ ErrorOr<bool> FileWatcherBase::add_watch(ByteString path, FileWatcherEvent::Type
         inotify_mask |= IN_MODIFY;
     if (has_flag(event_mask, FileWatcherEvent::Type::MetadataModified))
         inotify_mask |= IN_ATTRIB;
+    if (has_flag(event_mask, FileWatcherEvent::Type::DoNotFollowLink))
+        inotify_mask |= IN_DONT_FOLLOW;
 
     int watch_descriptor = ::inotify_add_watch(m_watcher_fd, path.characters(), inotify_mask);
     if (watch_descriptor < 0)
@@ -162,11 +167,11 @@ ErrorOr<bool> FileWatcherBase::remove_watch(ByteString path)
         return false;
     }
 
-    if (::inotify_rm_watch(m_watcher_fd, it->value) < 0)
-        return Error::from_errno(errno);
-
     m_path_to_wd.remove(it);
     m_wd_to_path.remove(it->value);
+
+    if (::inotify_rm_watch(m_watcher_fd, it->value) < 0)
+        return Error::from_errno(errno);
 
     dbgln_if(FILE_WATCHER_DEBUG, "remove_watch: stopped watching path '{}' on InodeWatcher {}", path, m_watcher_fd);
     return true;

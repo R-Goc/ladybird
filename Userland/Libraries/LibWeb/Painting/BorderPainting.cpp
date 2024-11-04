@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022, MacDue <macdue@dueutil.tech>
  *
@@ -61,7 +61,7 @@ Gfx::Color border_color(BorderEdge edge, BordersDataDevicePixels const& borders_
     return border_data.color;
 }
 
-void paint_border(DisplayListRecorder& painter, BorderEdge edge, DevicePixelRect const& rect, Gfx::AntiAliasingPainter::CornerRadius const& radius, Gfx::AntiAliasingPainter::CornerRadius const& opposite_radius, BordersDataDevicePixels const& borders_data, Gfx::Path& path, bool last)
+void paint_border(DisplayListRecorder& painter, BorderEdge edge, DevicePixelRect const& rect, Gfx::CornerRadius const& radius, Gfx::CornerRadius const& opposite_radius, BordersDataDevicePixels const& borders_data, Gfx::Path& path, bool last)
 {
     auto const& border_data = [&] {
         switch (edge) {
@@ -583,7 +583,7 @@ Optional<BordersData> borders_data_for_outline(Layout::Node const& layout_node, 
         outline_color = layout_node.document().normal_link_color();
         outline_width = 2;
     } else {
-        line_style = CSS::value_id_to_line_style(CSS::to_value_id(outline_style)).value_or(CSS::LineStyle::None);
+        line_style = CSS::keyword_to_line_style(CSS::to_keyword(outline_style)).value_or(CSS::LineStyle::None);
     }
 
     if (outline_color.alpha() == 0 || line_style == CSS::LineStyle::None || outline_width == 0)

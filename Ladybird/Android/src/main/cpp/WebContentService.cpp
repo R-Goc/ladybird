@@ -11,7 +11,6 @@
 #include <Ladybird/HelperProcess.h>
 #include <Ladybird/ImageCodecPlugin.h>
 #include <Ladybird/Utilities.h>
-#include <LibAudio/Loader.h>
 #include <LibCore/ArgsParser.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/LocalServer.h>
@@ -19,7 +18,8 @@
 #include <LibIPC/ConnectionFromClient.h>
 #include <LibImageDecoderClient/Client.h>
 #include <LibJS/Bytecode/Interpreter.h>
-#include <LibProtocol/RequestClient.h>
+#include <LibMedia/Audio/Loader.h>
+#include <LibRequests/RequestClient.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/Loader/ContentFilter.h>
@@ -32,9 +32,9 @@
 #include <WebContent/ConnectionFromClient.h>
 #include <WebContent/PageHost.h>
 
-static ErrorOr<NonnullRefPtr<Protocol::RequestClient>> bind_request_server_service()
+static ErrorOr<NonnullRefPtr<Requests::RequestClient>> bind_request_server_service()
 {
-    return bind_service<Protocol::RequestClient>(&bind_request_server_java);
+    return bind_service<Requests::RequestClient>(&bind_request_server_java);
 }
 
 static ErrorOr<NonnullRefPtr<ImageDecoderClient::Client>> bind_image_decoder_service()

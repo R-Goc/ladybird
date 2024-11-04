@@ -18,6 +18,7 @@
 #include <LibGfx/ImmutableBitmap.h>
 #include <LibGfx/PaintStyle.h>
 #include <LibGfx/Palette.h>
+#include <LibGfx/Path.h>
 #include <LibGfx/Point.h>
 #include <LibGfx/Rect.h>
 #include <LibGfx/ScalingMode.h>
@@ -96,32 +97,25 @@ public:
     void draw_text(Gfx::IntRect const&, String, Gfx::Font const&, Gfx::TextAlignment, Color);
 
     // Streamlined text drawing routine that does no wrapping/elision/alignment.
-    void draw_text_run(Gfx::IntPoint baseline_start, Gfx::GlyphRun const& glyph_run, Color color, Gfx::IntRect const& rect, double scale);
+    void draw_text_run(Gfx::IntPoint baseline_start, Gfx::GlyphRun const& glyph_run, Color color, Gfx::IntRect const& rect, double scale, Gfx::Orientation);
 
     void add_clip_rect(Gfx::IntRect const& rect);
 
-    void translate(int dx, int dy);
     void translate(Gfx::IntPoint delta);
 
-    void set_scroll_frame_id(Optional<i32> id)
-    {
-        state().scroll_frame_id = id;
-    }
-
-    Optional<i32> scroll_frame_id() const
-    {
-        return state().scroll_frame_id;
-    }
+    void push_scroll_frame_id(Optional<i32> id);
+    void pop_scroll_frame_id();
 
     void save();
     void restore();
 
     struct PushStackingContextParams {
         float opacity;
+        CSS::ResolvedFilter filter;
         bool is_fixed_position;
         Gfx::IntRect source_paintable_rect;
         StackingContextTransform transform;
-        Optional<StackingContextMask> mask = {};
+        Optional<Gfx::Path> clip_path = {};
     };
     void push_stacking_context(PushStackingContextParams params);
     void pop_stacking_context();
@@ -131,17 +125,23 @@ public:
     void add_rounded_rect_clip(CornerRadii corner_radii, Gfx::IntRect border_rect, CornerClip corner_clip);
     void add_mask(RefPtr<DisplayList> display_list, Gfx::IntRect rect);
 
-    void apply_backdrop_filter(Gfx::IntRect const& backdrop_region, BorderRadiiData const& border_radii_data, CSS::ResolvedBackdropFilter const& backdrop_filter);
+    void apply_backdrop_filter(Gfx::IntRect const& backdrop_region, BorderRadiiData const& border_radii_data, CSS::ResolvedFilter const& backdrop_filter);
 
     void paint_outer_box_shadow_params(PaintBoxShadowParams params);
     void paint_inner_box_shadow_params(PaintBoxShadowParams params);
     void paint_text_shadow(int blur_radius, Gfx::IntRect bounding_rect, Gfx::IntRect text_rect, Gfx::GlyphRun const&, double glyph_run_scale, Color color, Gfx::IntPoint draw_location);
 
-    void fill_rect_with_rounded_corners(Gfx::IntRect const& rect, Color color, Gfx::AntiAliasingPainter::CornerRadius top_left_radius, Gfx::AntiAliasingPainter::CornerRadius top_right_radius, Gfx::AntiAliasingPainter::CornerRadius bottom_right_radius, Gfx::AntiAliasingPainter::CornerRadius bottom_left_radius);
+    void fill_rect_with_rounded_corners(Gfx::IntRect const& rect, Color color, Gfx::CornerRadius top_left_radius, Gfx::CornerRadius top_right_radius, Gfx::CornerRadius bottom_right_radius, Gfx::CornerRadius bottom_left_radius);
     void fill_rect_with_rounded_corners(Gfx::IntRect const& a_rect, Color color, int radius);
     void fill_rect_with_rounded_corners(Gfx::IntRect const& a_rect, Color color, int top_left_radius, int top_right_radius, int bottom_right_radius, int bottom_left_radius);
 
     void draw_triangle_wave(Gfx::IntPoint a_p1, Gfx::IntPoint a_p2, Color color, int amplitude, int thickness);
+
+    void paint_scrollbar(int scroll_frame_id, Gfx::IntRect, CSSPixelFraction scroll_size, bool vertical);
+
+    void apply_opacity(float opacity);
+    void apply_transform(Gfx::FloatPoint origin, Gfx::FloatMatrix4x4);
+    void apply_mask_bitmap(Gfx::IntPoint origin, Gfx::Bitmap const&, Gfx::Bitmap::MaskKind);
 
     DisplayListRecorder(DisplayList&);
     ~DisplayListRecorder();
@@ -151,15 +151,7 @@ public:
     void append(Command&& command);
 
 private:
-    struct State {
-        Gfx::AffineTransform translation;
-        Optional<Gfx::IntRect> clip_rect;
-        Optional<i32> scroll_frame_id;
-    };
-    State& state() { return m_state_stack.last(); }
-    State const& state() const { return m_state_stack.last(); }
-
-    Vector<State> m_state_stack;
+    Vector<Optional<i32>> m_scroll_frame_id_stack;
     DisplayList& m_command_list;
 };
 

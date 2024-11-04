@@ -11,6 +11,7 @@
 #include <LibCore/Timer.h>
 #include <LibGfx/ImageFormats/PNGWriter.h>
 #include <LibWeb/Infra/Strings.h>
+#include <LibWebView/Application.h>
 #include <LibWebView/ViewImplementation.h>
 
 #ifdef AK_OS_MACOS
@@ -76,6 +77,21 @@ void ViewImplementation::server_did_paint(Badge<WebContentClient>, i32 bitmap_id
     client().async_ready_to_paint(page_id());
 }
 
+void ViewImplementation::set_window_position(Gfx::IntPoint position)
+{
+    client().async_set_window_position(m_client_state.page_index, position.to_type<Web::DevicePixels>());
+}
+
+void ViewImplementation::set_window_size(Gfx::IntSize size)
+{
+    client().async_set_window_size(m_client_state.page_index, size.to_type<Web::DevicePixels>());
+}
+
+void ViewImplementation::did_update_window_rect()
+{
+    client().async_did_update_window_rect(m_client_state.page_index);
+}
+
 void ViewImplementation::load(URL::URL const& url)
 {
     m_url = url;
@@ -106,7 +122,7 @@ void ViewImplementation::zoom_in()
 {
     if (m_zoom_level >= ZOOM_MAX_LEVEL)
         return;
-    m_zoom_level += ZOOM_STEP;
+    m_zoom_level = round_to<int>((m_zoom_level + ZOOM_STEP) * 100) / 100.0f;
     update_zoom();
 }
 
@@ -114,7 +130,7 @@ void ViewImplementation::zoom_out()
 {
     if (m_zoom_level <= ZOOM_MIN_LEVEL)
         return;
-    m_zoom_level -= ZOOM_STEP;
+    m_zoom_level = round_to<int>((m_zoom_level - ZOOM_STEP) * 100) / 100.0f;
     update_zoom();
 }
 
@@ -137,21 +153,34 @@ void ViewImplementation::enqueue_input_event(Web::InputEvent event)
         },
         [this](Web::MouseEvent const& event) {
             client().async_mouse_event(m_client_state.page_index, event.clone_without_chrome_data());
+        },
+        [this](Web::DragEvent& event) {
+            auto cloned_event = event.clone_without_chrome_data();
+            cloned_event.files = move(event.files);
+
+            client().async_drag_event(m_client_state.page_index, move(cloned_event));
         });
 }
 
-void ViewImplementation::did_finish_handling_input_event(Badge<WebContentClient>, bool event_was_accepted)
+void ViewImplementation::did_finish_handling_input_event(Badge<WebContentClient>, Web::EventResult event_result)
 {
     auto event = m_pending_input_events.dequeue();
 
-    if (!event_was_accepted && event.has<Web::KeyEvent>()) {
-        auto const& key_event = event.get<Web::KeyEvent>();
+    if (event_result == Web::EventResult::Handled)
+        return;
 
-        // Here we handle events that were not consumed or cancelled by the WebContent. Propagate the event back
-        // to the concrete view implementation.
-        if (on_finish_handling_key_event)
-            on_finish_handling_key_event(key_event);
-    }
+    // Here we handle events that were not consumed or cancelled by the WebContent. Propagate the event back
+    // to the concrete view implementation.
+    event.visit(
+        [this](Web::KeyEvent const& event) {
+            if (on_finish_handling_key_event)
+                on_finish_handling_key_event(event);
+        },
+        [this](Web::DragEvent const& event) {
+            if (on_finish_handling_drag_event)
+                on_finish_handling_drag_event(event);
+        },
+        [](auto const&) {});
 }
 
 void ViewImplementation::set_preferred_color_scheme(Web::CSS::PreferredColorScheme color_scheme)
@@ -177,6 +206,15 @@ void ViewImplementation::set_preferred_languages(Vector<String> preferred_langua
 void ViewImplementation::set_enable_do_not_track(bool enable)
 {
     client().async_set_enable_do_not_track(page_id(), enable);
+}
+
+void ViewImplementation::set_enable_autoplay(bool enable)
+{
+    if (enable) {
+        client().async_set_autoplay_allowed_on_all_websites(page_id());
+    } else {
+        client().async_set_autoplay_allowlist(page_id(), {});
+    }
 }
 
 ByteString ViewImplementation::selected_text()
@@ -227,7 +265,7 @@ void ViewImplementation::inspect_dom_tree()
     client().async_inspect_dom_tree(page_id());
 }
 
-void ViewImplementation::inspect_dom_node(i32 node_id, Optional<Web::CSS::Selector::PseudoElement::Type> pseudo_element)
+void ViewImplementation::inspect_dom_node(Web::UniqueNodeID node_id, Optional<Web::CSS::Selector::PseudoElement::Type> pseudo_element)
 {
     client().async_inspect_dom_node(page_id(), node_id, move(pseudo_element));
 }
@@ -247,49 +285,59 @@ void ViewImplementation::get_hovered_node_id()
     client().async_get_hovered_node_id(page_id());
 }
 
-void ViewImplementation::set_dom_node_text(i32 node_id, String text)
+void ViewImplementation::set_dom_node_text(Web::UniqueNodeID node_id, String text)
 {
     client().async_set_dom_node_text(page_id(), node_id, move(text));
 }
 
-void ViewImplementation::set_dom_node_tag(i32 node_id, String name)
+void ViewImplementation::set_dom_node_tag(Web::UniqueNodeID node_id, String name)
 {
     client().async_set_dom_node_tag(page_id(), node_id, move(name));
 }
 
-void ViewImplementation::add_dom_node_attributes(i32 node_id, Vector<Attribute> attributes)
+void ViewImplementation::add_dom_node_attributes(Web::UniqueNodeID node_id, Vector<Attribute> attributes)
 {
     client().async_add_dom_node_attributes(page_id(), node_id, move(attributes));
 }
 
-void ViewImplementation::replace_dom_node_attribute(i32 node_id, String name, Vector<Attribute> replacement_attributes)
+void ViewImplementation::replace_dom_node_attribute(Web::UniqueNodeID node_id, String name, Vector<Attribute> replacement_attributes)
 {
     client().async_replace_dom_node_attribute(page_id(), node_id, move(name), move(replacement_attributes));
 }
 
-void ViewImplementation::create_child_element(i32 node_id)
+void ViewImplementation::create_child_element(Web::UniqueNodeID node_id)
 {
     client().async_create_child_element(page_id(), node_id);
 }
 
-void ViewImplementation::create_child_text_node(i32 node_id)
+void ViewImplementation::create_child_text_node(Web::UniqueNodeID node_id)
 {
     client().async_create_child_text_node(page_id(), node_id);
 }
 
-void ViewImplementation::clone_dom_node(i32 node_id)
+void ViewImplementation::clone_dom_node(Web::UniqueNodeID node_id)
 {
     client().async_clone_dom_node(page_id(), node_id);
 }
 
-void ViewImplementation::remove_dom_node(i32 node_id)
+void ViewImplementation::remove_dom_node(Web::UniqueNodeID node_id)
 {
     client().async_remove_dom_node(page_id(), node_id);
 }
 
-void ViewImplementation::get_dom_node_html(i32 node_id)
+void ViewImplementation::get_dom_node_html(Web::UniqueNodeID node_id)
 {
     client().async_get_dom_node_html(page_id(), node_id);
+}
+
+void ViewImplementation::list_style_sheets()
+{
+    client().async_list_style_sheets(page_id());
+}
+
+void ViewImplementation::request_style_sheet_source(Web::CSS::StyleSheetIdentifier const& identifier)
+{
+    client().async_request_style_sheet_source(page_id(), identifier);
 }
 
 void ViewImplementation::debug_request(ByteString const& request, ByteString const& argument)
@@ -449,7 +497,7 @@ void ViewImplementation::handle_resize()
 void ViewImplementation::handle_web_content_process_crash()
 {
     dbgln("WebContent process crashed!");
-    dbgln("Consider raising an issue at https://github.com/LadybirdBrowser/ladybird/issues");
+    dbgln("Consider raising an issue at https://github.com/LadybirdBrowser/ladybird/issues/new/choose");
 
     ++m_crash_count;
     constexpr size_t max_reasonable_crash_count = 5U;
@@ -485,10 +533,10 @@ void ViewImplementation::handle_web_content_process_crash()
 static ErrorOr<LexicalPath> save_screenshot(Gfx::ShareableBitmap const& bitmap)
 {
     if (!bitmap.is_valid())
-        return Error::from_string_view("Failed to take a screenshot"sv);
+        return Error::from_string_literal("Failed to take a screenshot");
 
-    LexicalPath path { Core::StandardPaths::downloads_directory() };
-    path = path.append(TRY(Core::DateTime::now().to_string("screenshot-%Y-%m-%d-%H-%M-%S.png"sv)));
+    auto file = Core::DateTime::now().to_byte_string("screenshot-%Y-%m-%d-%H-%M-%S.png"sv);
+    auto path = TRY(Application::the().path_for_downloaded_file(file));
 
     auto encoded = TRY(Gfx::PNGWriter::encode(*bitmap.bitmap()));
 
@@ -530,7 +578,7 @@ NonnullRefPtr<Core::Promise<LexicalPath>> ViewImplementation::take_screenshot(Sc
     return promise;
 }
 
-NonnullRefPtr<Core::Promise<LexicalPath>> ViewImplementation::take_dom_node_screenshot(i32 node_id)
+NonnullRefPtr<Core::Promise<LexicalPath>> ViewImplementation::take_dom_node_screenshot(Web::UniqueNodeID node_id)
 {
     auto promise = Core::Promise<LexicalPath>::construct();
 
@@ -559,15 +607,40 @@ void ViewImplementation::did_receive_screenshot(Badge<WebContentClient>, Gfx::Sh
     m_pending_screenshot = nullptr;
 }
 
+NonnullRefPtr<Core::Promise<String>> ViewImplementation::request_internal_page_info(PageInfoType type)
+{
+    auto promise = Core::Promise<String>::construct();
+
+    if (m_pending_info_request) {
+        // For simplicitly, only allow one info request at a time for now.
+        promise->reject(Error::from_string_literal("A page info request is already in progress"));
+        return promise;
+    }
+
+    m_pending_info_request = promise;
+    client().async_request_internal_page_info(page_id(), type);
+
+    return promise;
+}
+
+void ViewImplementation::did_receive_internal_page_info(Badge<WebContentClient>, PageInfoType, String const& info)
+{
+    VERIFY(m_pending_info_request);
+
+    m_pending_info_request->resolve(String { info });
+    m_pending_info_request = nullptr;
+}
+
 ErrorOr<LexicalPath> ViewImplementation::dump_gc_graph()
 {
-    auto gc_graph_json = client().dump_gc_graph(page_id());
+    auto promise = request_internal_page_info(PageInfoType::GCGraph);
+    auto gc_graph_json = TRY(promise->await());
 
     LexicalPath path { Core::StandardPaths::tempfile_directory() };
     path = path.append(TRY(Core::DateTime::now().to_string("gc-graph-%Y-%m-%d-%H-%M-%S.json"sv)));
 
-    auto screenshot_file = TRY(Core::File::open(path.string(), Core::File::OpenMode::Write));
-    TRY(screenshot_file->write_until_depleted(gc_graph_json.bytes()));
+    auto dump_file = TRY(Core::File::open(path.string(), Core::File::OpenMode::Write));
+    TRY(dump_file->write_until_depleted(gc_graph_json.bytes()));
 
     return path;
 }
@@ -579,8 +652,8 @@ void ViewImplementation::set_user_style_sheet(String source)
 
 void ViewImplementation::use_native_user_style_sheet()
 {
-    extern StringView native_stylesheet_source;
-    set_user_style_sheet(MUST(String::from_utf8(native_stylesheet_source)));
+    extern String native_stylesheet_source;
+    set_user_style_sheet(native_stylesheet_source);
 }
 
 void ViewImplementation::enable_inspector_prototype()

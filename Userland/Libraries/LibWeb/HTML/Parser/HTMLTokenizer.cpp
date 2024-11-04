@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2022, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -433,7 +433,9 @@ _StartOfFunction:
                 if (consume_next_if_match("[CDATA["sv)) {
                     // We keep the parser optional so that syntax highlighting can be lexer-only.
                     // The parser registers itself with the lexer it creates.
-                    if (m_parser != nullptr && m_parser->adjusted_current_node().namespace_uri() != Namespace::HTML) {
+                    if (m_parser != nullptr
+                        && m_parser->adjusted_current_node()
+                        && m_parser->adjusted_current_node()->namespace_uri() != Namespace::HTML) {
                         SWITCH_TO(CDATASection);
                     } else {
                         create_new_token(HTMLToken::Type::Comment);
@@ -2863,6 +2865,9 @@ void HTMLTokenizer::will_emit(HTMLToken& token)
 
     auto is_start_or_end_tag = token.type() == HTMLToken::Type::StartTag || token.type() == HTMLToken::Type::EndTag;
     token.set_end_position({}, nth_last_position(is_start_or_end_tag ? 1 : 0));
+
+    if (is_start_or_end_tag)
+        token.normalize_attributes();
 }
 
 bool HTMLTokenizer::current_end_tag_token_is_appropriate() const

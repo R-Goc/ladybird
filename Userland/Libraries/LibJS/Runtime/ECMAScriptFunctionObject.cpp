@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2020, Stephan Unverwerth <s.unverwerth@serenityos.org>
  * Copyright (c) 2020-2023, Linus Groh <linusg@serenityos.org>
- * Copyright (c) 2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2023, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Shannon Booth <shannon@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -387,7 +387,6 @@ ThrowCompletionOr<Value> ECMAScriptFunctionObject::internal_call(Value this_argu
     // Non-standard
     callee_context->arguments.ensure_capacity(max(arguments_list.size(), m_formal_parameters.size()));
     callee_context->arguments.append(arguments_list.data(), arguments_list.size());
-    callee_context->program_counter = vm.bytecode_interpreter().program_counter();
     callee_context->passed_argument_count = arguments_list.size();
     if (arguments_list.size() < m_formal_parameters.size()) {
         for (size_t i = arguments_list.size(); i < m_formal_parameters.size(); ++i)
@@ -462,7 +461,6 @@ ThrowCompletionOr<NonnullGCPtr<Object>> ECMAScriptFunctionObject::internal_const
     // Non-standard
     callee_context->arguments.ensure_capacity(max(arguments_list.size(), m_formal_parameters.size()));
     callee_context->arguments.append(arguments_list.data(), arguments_list.size());
-    callee_context->program_counter = vm.bytecode_interpreter().program_counter();
     callee_context->passed_argument_count = arguments_list.size();
     if (arguments_list.size() < m_formal_parameters.size()) {
         for (size_t i = arguments_list.size(); i < m_formal_parameters.size(); ++i)
@@ -736,7 +734,7 @@ void async_block_start(VM& vm, T const& async_body, PromiseCapability const& pro
         Completion result;
 
         // a. If asyncBody is a Parse Node, then
-        if constexpr (!IsCallableWithArguments<T, Completion>) {
+        if constexpr (!IsSame<T, HeapFunction<Completion()>>) {
             // a. Let result be the result of evaluating asyncBody.
             // FIXME: Cache this executable somewhere.
             auto maybe_executable = Bytecode::compile(vm, async_body, FunctionKind::Async, "AsyncBlockStart"sv);
@@ -748,10 +746,8 @@ void async_block_start(VM& vm, T const& async_body, PromiseCapability const& pro
         // b. Else,
         else {
             // i. Assert: asyncBody is an Abstract Closure with no parameters.
-            static_assert(IsCallableWithArguments<T, Completion>);
-
             // ii. Let result be asyncBody().
-            result = async_body();
+            result = async_body.function()();
         }
 
         // c. Assert: If we return here, the async function either threw an exception or performed an implicit or explicit return; all awaiting is done.
@@ -813,8 +809,8 @@ void async_block_start(VM& vm, T const& async_body, PromiseCapability const& pro
 template void async_block_start(VM&, NonnullRefPtr<Statement const> const& async_body, PromiseCapability const&, ExecutionContext&);
 template void async_function_start(VM&, PromiseCapability const&, NonnullRefPtr<Statement const> const& async_function_body);
 
-template void async_block_start(VM&, SafeFunction<Completion()> const& async_body, PromiseCapability const&, ExecutionContext&);
-template void async_function_start(VM&, PromiseCapability const&, SafeFunction<Completion()> const& async_function_body);
+template void async_block_start(VM&, HeapFunction<Completion()> const& async_body, PromiseCapability const&, ExecutionContext&);
+template void async_function_start(VM&, PromiseCapability const&, HeapFunction<Completion()> const& async_function_body);
 
 // 10.2.1.4 OrdinaryCallEvaluateBody ( F, argumentsList ), https://tc39.es/ecma262/#sec-ordinarycallevaluatebody
 // 15.8.4 Runtime Semantics: EvaluateAsyncFunctionBody, https://tc39.es/ecma262/#sec-runtime-semantics-evaluatefunctionbody

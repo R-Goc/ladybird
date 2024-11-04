@@ -5,9 +5,9 @@
  */
 
 #include <AK/IDAllocator.h>
-#include <LibAudio/Loader.h>
 #include <LibJS/Runtime/Realm.h>
 #include <LibJS/Runtime/VM.h>
+#include <LibMedia/Audio/Loader.h>
 #include <LibWeb/Bindings/AudioTrackPrototype.h>
 #include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/DOM/Event.h>
@@ -31,7 +31,7 @@ AudioTrack::AudioTrack(JS::Realm& realm, JS::NonnullGCPtr<HTMLMediaElement> medi
     , m_audio_plugin(Platform::AudioCodecPlugin::create(move(loader)).release_value_but_fixme_should_propagate_errors())
 {
     m_audio_plugin->on_playback_position_updated = [this](auto position) {
-        if (auto const* paintable = m_media_element->paintable())
+        if (auto* paintable = m_media_element->paintable())
             paintable->set_needs_display();
 
         auto playback_position = static_cast<double>(position.to_milliseconds()) / 1000.0;
@@ -57,7 +57,7 @@ void AudioTrack::initialize(JS::Realm& realm)
     WEB_SET_PROTOTYPE_FOR_INTERFACE(AudioTrack);
 
     auto id = s_audio_track_id_allocator.allocate();
-    m_id = MUST(String::number(id));
+    m_id = String::number(id);
 }
 
 void AudioTrack::play(Badge<HTMLAudioElement>)

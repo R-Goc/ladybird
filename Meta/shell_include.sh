@@ -17,40 +17,23 @@ exit_if_running_as_root() {
     fi
 }
 
-find_executable() {
-  paths=("/usr/sbin" "/sbin")
-
-  if [ "$(uname -s)" = "Darwin" ]; then
-    if [ -n "${HOMEBREW_PREFIX}" ]; then
-      paths+=("${HOMEBREW_PREFIX}/opt/e2fsprogs/bin" "${HOMEBREW_PREFIX}/opt/e2fsprogs/sbin")
-    elif command -v brew > /dev/null 2>&1; then
-      if prefix=$(brew --prefix e2fsprogs 2>/dev/null); then
-        paths+=("${prefix}/bin" "${prefix}/sbin")
-      fi
+# Usage: check_program_version_at_least <Display Name> <Program Name> <Version String>
+check_program_version_at_least()
+{
+    echo -n "Checking for $1 version at least $3... "
+    if ! command -v "$2" > /dev/null 2>&1; then
+        echo "ERROR: Cannot find $2 ($1)"
+        return 1
     fi
-  fi
-
-  executable="${1}"
-
-  # Prefer tools from PATH over fallback paths
-  if command -v "${executable}"; then
-    return 0
-  fi
-
-  for path in "${paths[@]}"; do
-    if command -v "${path}/${executable}"; then
-      return 0
+    v=$("$2" --version 2>&1 | grep -E -o '[0-9]+\.[0-9\.]+[a-z]*' | head -n1)
+    if printf '%s\n' "$3" "$v" | sort --version-sort --check &>/dev/null; then
+        echo "ok, found $v"
+        return 0;
+    else
+        echo "ERROR: found version $v, too old!"
+        return 1;
     fi
-  done
-
-  # We return the executable's name back to provide meaningful messages on future failure
-  echo "${executable}"
 }
-
-FUSE2FS_PATH="$(find_executable fuse2fs)"
-RESIZE2FS_PATH="$(find_executable resize2fs)"
-E2FSCK_PATH="$(find_executable e2fsck)"
-MKE2FS_PATH="$(find_executable mke2fs)"
 
 get_number_of_processing_units() {
   number_of_processing_units="nproc"
@@ -67,19 +50,47 @@ get_number_of_processing_units() {
   ($number_of_processing_units)
 }
 
-# We depend on GNU coreutils du for the --apparent-size extension.
-# GNU coreutils is a build dependency.
-if command -v gdu > /dev/null 2>&1 && gdu --version | grep -q "GNU coreutils"; then
-    GNUDU="gdu"
-else
-    GNUDU="du"
-fi
-
-disk_usage() {
-    # shellcheck disable=SC2003,SC2307
-    expr "$(${GNUDU} -sbm "$1" | cut -f1)"
+get_top_dir() {
+    git rev-parse --show-toplevel
 }
 
-inode_usage() {
-    find "$1" | wc -l
+ensure_ladybird_source_dir() {
+    if [ -z "$LADYBIRD_SOURCE_DIR" ] || [ ! -d "$LADYBIRD_SOURCE_DIR" ]; then
+        LADYBIRD_SOURCE_DIR="$(get_top_dir)"
+        export LADYBIRD_SOURCE_DIR
+    fi
+}
+
+get_build_dir() {
+    ensure_ladybird_source_dir
+
+    # Note: Keep in sync with buildDir defaults in CMakePresets.json
+    case "$1" in
+        "default")
+            BUILD_DIR="${LADYBIRD_SOURCE_DIR}/Build/ladybird"
+            ;;
+        "Debug")
+            BUILD_DIR="${LADYBIRD_SOURCE_DIR}/Build/ladybird-debug"
+            ;;
+        "Sanitizer")
+            BUILD_DIR="${LADYBIRD_SOURCE_DIR}/Build/ladybird-sanitizers"
+            ;;
+        *)
+            echo "Unknown BUILD_PRESET: '$1'" >&2
+            exit 1
+            ;;
+    esac
+
+    echo "${BUILD_DIR}"
+}
+
+absolutize_path() {
+    directory="$(eval echo "$(dirname "$1")")"
+    if [ -d "$directory" ]; then
+        resolved_directory="$(cd "$directory" && pwd)"
+        echo "${resolved_directory%/}/$(basename "$1")"
+    else
+        echo "No such directory: '$directory'" >&2
+        return 1
+    fi
 }

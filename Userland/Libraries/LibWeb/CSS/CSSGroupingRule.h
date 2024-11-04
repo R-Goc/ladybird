@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2022, Sam Atkins <atkinssj@serenityos.org>
+ * Copyright (c) 2021-2024, Sam Atkins <sam@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -26,13 +26,12 @@ public:
     WebIDL::ExceptionOr<u32> insert_rule(StringView rule, u32 index = 0);
     WebIDL::ExceptionOr<void> delete_rule(u32 index);
 
-    virtual void for_each_effective_style_rule(Function<void(CSSStyleRule const&)> const& callback) const;
-    virtual void for_each_effective_keyframes_at_rule(Function<void(CSSKeyframesRule const&)> const& callback) const;
+    virtual void for_each_effective_rule(TraversalOrder, Function<void(CSSRule const&)> const& callback) const;
 
     virtual void set_parent_style_sheet(CSSStyleSheet*) override;
 
 protected:
-    CSSGroupingRule(JS::Realm&, CSSRuleList&);
+    CSSGroupingRule(JS::Realm&, CSSRuleList&, Type);
 
     virtual void initialize(JS::Realm&) override;
     virtual void visit_edges(Cell::Visitor&) override;

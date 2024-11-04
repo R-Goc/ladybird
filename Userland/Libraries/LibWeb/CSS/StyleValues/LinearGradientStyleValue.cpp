@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022-2023, MacDue <macdue@dueutil.tech>
@@ -55,7 +55,7 @@ String LinearGradientStyleValue::to_string() const
     return MUST(builder.to_string());
 }
 
-bool LinearGradientStyleValue::equals(StyleValue const& other_) const
+bool LinearGradientStyleValue::equals(CSSStyleValue const& other_) const
 {
     if (type() != other_.type())
         return false;

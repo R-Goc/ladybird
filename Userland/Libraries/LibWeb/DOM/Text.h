@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Sam Atkins <atkinssj@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -8,6 +8,7 @@
 #pragma once
 
 #include <LibWeb/DOM/CharacterData.h>
+#include <LibWeb/DOM/Element.h>
 #include <LibWeb/DOM/Slottable.h>
 
 namespace Web::DOM {
@@ -15,7 +16,7 @@ namespace Web::DOM {
 class EditableTextNodeOwner {
 public:
     virtual ~EditableTextNodeOwner() = default;
-    virtual void did_edit_text_node(Badge<Document>) = 0;
+    virtual void did_edit_text_node() = 0;
 };
 
 class Text
@@ -47,6 +48,8 @@ public:
 
     bool is_password_input() const { return m_is_password_input; }
     void set_is_password_input(Badge<HTML::HTMLInputElement>, bool b) { m_is_password_input = b; }
+
+    Optional<Element::Directionality> directionality() const;
 
 protected:
     Text(Document&, String const&);

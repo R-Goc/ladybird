@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Adam Hodgen <ant1441@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -9,8 +9,9 @@
 #include <LibWeb/Bindings/Intrinsics.h>
 #include <LibWeb/CSS/Parser/Parser.h>
 #include <LibWeb/CSS/StyleProperties.h>
-#include <LibWeb/CSS/StyleValues/ColorStyleValue.h>
-#include <LibWeb/CSS/StyleValues/IdentifierStyleValue.h>
+#include <LibWeb/CSS/StyleValues/CSSColorValue.h>
+#include <LibWeb/CSS/StyleValues/CSSKeywordValue.h>
+#include <LibWeb/CSS/StyleValues/ImageStyleValue.h>
 #include <LibWeb/CSS/StyleValues/LengthStyleValue.h>
 #include <LibWeb/DOM/ElementFactory.h>
 #include <LibWeb/DOM/HTMLCollection.h>
@@ -59,24 +60,29 @@ void HTMLTableElement::apply_presentational_hints(CSS::StyleProperties& style) c
             return;
         }
         if (name == HTML::AttributeNames::height) {
-            if (auto parsed_value = parse_nonzero_dimension_value(value))
+            if (auto parsed_value = parse_dimension_value(value))
                 style.set_property(CSS::PropertyID::Height, parsed_value.release_nonnull());
             return;
         }
         if (name == HTML::AttributeNames::align) {
             if (value.equals_ignoring_ascii_case("center"sv)) {
-                style.set_property(CSS::PropertyID::MarginLeft, CSS::IdentifierStyleValue::create(CSS::ValueID::Auto));
-                style.set_property(CSS::PropertyID::MarginRight, CSS::IdentifierStyleValue::create(CSS::ValueID::Auto));
+                style.set_property(CSS::PropertyID::MarginLeft, CSS::CSSKeywordValue::create(CSS::Keyword::Auto));
+                style.set_property(CSS::PropertyID::MarginRight, CSS::CSSKeywordValue::create(CSS::Keyword::Auto));
             } else if (auto parsed_value = parse_css_value(CSS::Parser::ParsingContext { document() }, value, CSS::PropertyID::Float)) {
                 style.set_property(CSS::PropertyID::Float, parsed_value.release_nonnull());
             }
+            return;
+        }
+        if (name == HTML::AttributeNames::background) {
+            if (auto parsed_value = document().parse_url(value); parsed_value.is_valid())
+                style.set_property(CSS::PropertyID::BackgroundImage, CSS::ImageStyleValue::create(parsed_value));
             return;
         }
         if (name == HTML::AttributeNames::bgcolor) {
             // https://html.spec.whatwg.org/multipage/rendering.html#tables-2:rules-for-parsing-a-legacy-colour-value
             auto color = parse_legacy_color_value(value);
             if (color.has_value())
-                style.set_property(CSS::PropertyID::BackgroundColor, CSS::ColorStyleValue::create(color.value()));
+                style.set_property(CSS::PropertyID::BackgroundColor, CSS::CSSColorValue::create_from_color(color.value()));
             return;
         }
         if (name == HTML::AttributeNames::cellspacing) {
@@ -89,10 +95,10 @@ void HTMLTableElement::apply_presentational_hints(CSS::StyleProperties& style) c
             if (!border)
                 return;
             auto apply_border_style = [&](CSS::PropertyID style_property, CSS::PropertyID width_property, CSS::PropertyID color_property) {
-                auto legacy_line_style = CSS::IdentifierStyleValue::create(CSS::ValueID::Outset);
+                auto legacy_line_style = CSS::CSSKeywordValue::create(CSS::Keyword::Outset);
                 style.set_property(style_property, legacy_line_style);
                 style.set_property(width_property, CSS::LengthStyleValue::create(CSS::Length::make_px(border)));
-                style.set_property(color_property, CSS::ColorStyleValue::create(Color(128, 128, 128)));
+                style.set_property(color_property, CSS::CSSColorValue::create_from_color(Color(128, 128, 128)));
             };
             apply_border_style(CSS::PropertyID::BorderLeftStyle, CSS::PropertyID::BorderLeftWidth, CSS::PropertyID::BorderLeftColor);
             apply_border_style(CSS::PropertyID::BorderTopStyle, CSS::PropertyID::BorderTopWidth, CSS::PropertyID::BorderTopColor);
@@ -179,7 +185,7 @@ WebIDL::ExceptionOr<void> HTMLTableElement::set_t_head(HTMLTableSectionElement* 
 {
     // If the new value is neither null nor a thead element, then a "HierarchyRequestError" DOMException must be thrown instead.
     if (thead && thead->local_name() != TagNames::thead)
-        return WebIDL::HierarchyRequestError::create(realm(), "Element is not thead"_fly_string);
+        return WebIDL::HierarchyRequestError::create(realm(), "Element is not thead"_string);
 
     // On setting, if the new value is null or a thead element, the first thead element child of the table element,
     // if any, must be removed,
@@ -277,7 +283,7 @@ WebIDL::ExceptionOr<void> HTMLTableElement::set_t_foot(HTMLTableSectionElement* 
 {
     // If the new value is neither null nor a tfoot element, then a "HierarchyRequestError" DOMException must be thrown instead.
     if (tfoot && tfoot->local_name() != TagNames::tfoot)
-        return WebIDL::HierarchyRequestError::create(realm(), "Element is not tfoot"_fly_string);
+        return WebIDL::HierarchyRequestError::create(realm(), "Element is not tfoot"_string);
 
     // On setting, if the new value is null or a tfoot element, the first tfoot element child of the table element,
     // if any, must be removed,
@@ -389,7 +395,7 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<HTMLTableRowElement>> HTMLTableElement::ins
     auto rows_length = rows->length();
 
     if (index < -1 || index > (long)rows_length) {
-        return WebIDL::IndexSizeError::create(realm(), "Index is negative or greater than the number of rows"_fly_string);
+        return WebIDL::IndexSizeError::create(realm(), "Index is negative or greater than the number of rows"_string);
     }
     auto& tr = static_cast<HTMLTableRowElement&>(*TRY(DOM::create_element(document(), TagNames::tr, Namespace::HTML)));
     if (rows_length == 0 && !has_child_of_type<HTMLTableRowElement>()) {
@@ -416,7 +422,7 @@ WebIDL::ExceptionOr<void> HTMLTableElement::delete_row(WebIDL::Long index)
 
     // 1. If index is less than −1 or greater than or equal to the number of elements in the rows collection, then throw an "IndexSizeError" DOMException.
     if (index < -1 || index >= (long)rows_length)
-        return WebIDL::IndexSizeError::create(realm(), "Index is negative or greater than or equal to the number of rows"_fly_string);
+        return WebIDL::IndexSizeError::create(realm(), "Index is negative or greater than or equal to the number of rows"_string);
 
     // 2. If index is −1, then remove the last element in the rows collection from its parent, or do nothing if the rows collection is empty.
     if (index == -1) {

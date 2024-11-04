@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022-2023, MacDue <macdue@dueutil.tech>
@@ -18,7 +18,7 @@ String BorderRadiusStyleValue::to_string() const
     return MUST(String::formatted("{} / {}", m_properties.horizontal_radius.to_string(), m_properties.vertical_radius.to_string()));
 }
 
-ValueComparingNonnullRefPtr<StyleValue const> BorderRadiusStyleValue::absolutized(CSSPixelRect const& viewport_rect, Length::FontMetrics const& font_metrics, Length::FontMetrics const& root_font_metrics) const
+ValueComparingNonnullRefPtr<CSSStyleValue const> BorderRadiusStyleValue::absolutized(CSSPixelRect const& viewport_rect, Length::FontMetrics const& font_metrics, Length::FontMetrics const& root_font_metrics) const
 {
     if (m_properties.horizontal_radius.is_percentage() && m_properties.vertical_radius.is_percentage())
         return *this;

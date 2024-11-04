@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022-2023, MacDue <macdue@dueutil.tech>
@@ -50,7 +50,7 @@ void ConicGradientStyleValue::paint(PaintContext& context, DevicePixelRect const
     context.display_list_recorder().fill_rect_with_conic_gradient(destination_rect, m_resolved->data, position);
 }
 
-bool ConicGradientStyleValue::equals(StyleValue const& other) const
+bool ConicGradientStyleValue::equals(CSSStyleValue const& other) const
 {
     if (type() != other.type())
         return false;

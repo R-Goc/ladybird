@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -17,11 +17,6 @@ Size::Size(Type type, LengthPercentage length_percentage)
 CSSPixels Size::to_px(Layout::Node const& node, CSSPixels reference_value) const
 {
     return m_length_percentage.resolved(node, reference_value).to_px(node);
-}
-
-CSS::Length Size::resolved(Layout::Node const& node, CSSPixels reference_value) const
-{
-    return m_length_percentage.resolved(node, reference_value);
 }
 
 Size Size::make_auto()
@@ -44,7 +39,7 @@ Size Size::make_percentage(Percentage percentage)
     return Size { Type::Percentage, move(percentage) };
 }
 
-Size Size::make_calculated(NonnullRefPtr<Web::CSS::CalculatedStyleValue> calculated)
+Size Size::make_calculated(NonnullRefPtr<Web::CSS::CSSMathValue> calculated)
 {
     return Size { Type::Calculated, move(calculated) };
 }

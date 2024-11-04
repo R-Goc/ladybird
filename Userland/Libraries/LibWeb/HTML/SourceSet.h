@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2023, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -33,7 +33,7 @@ struct ImageSourceAndPixelDensity {
 
 // https://html.spec.whatwg.org/multipage/images.html#source-set
 struct SourceSet {
-    static SourceSet create(DOM::Element const&, String default_source, String srcset, String sizes);
+    static SourceSet create(DOM::Element const& element, String const& default_source, String const& srcset, String const& sizes, HTML::HTMLImageElement const* img = nullptr);
 
     [[nodiscard]] bool is_empty() const;
 
@@ -50,6 +50,6 @@ struct SourceSet {
 };
 
 SourceSet parse_a_srcset_attribute(StringView);
-[[nodiscard]] CSS::LengthOrCalculated parse_a_sizes_attribute(DOM::Document const&, StringView);
+[[nodiscard]] CSS::LengthOrCalculated parse_a_sizes_attribute(DOM::Element const& element, StringView sizes, HTML::HTMLImageElement const* img = nullptr);
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2023, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -21,7 +21,7 @@ struct StyleProperty {
 
     Important important { Important::No };
     CSS::PropertyID property_id;
-    NonnullRefPtr<StyleValue const> value;
+    NonnullRefPtr<CSSStyleValue const> value;
     FlyString custom_name {};
 };
 

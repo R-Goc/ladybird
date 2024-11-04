@@ -1,10 +1,11 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Andrew Kaster <akaster@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "LadybirdServiceBase.h"
 #include <AK/LexicalPath.h>
 #include <AK/OwnPtr.h>
 #include <Ladybird/Utilities.h>
@@ -20,11 +21,11 @@
 #include <RequestServer/HttpsProtocol.h>
 
 // FIXME: Share b/w RequestServer and WebSocket
-ErrorOr<ByteString> find_certificates(StringView serenity_resource_root)
+static ErrorOr<ByteString> find_certificates(StringView serenity_resource_root)
 {
     auto cert_path = ByteString::formatted("{}/res/ladybird/cacert.pem", serenity_resource_root);
     if (!FileSystem::exists(cert_path))
-        return Error::from_string_view("Don't know how to load certs!"sv);
+        return Error::from_string_literal("Don't know how to load certs!");
     return cert_path;
 }
 

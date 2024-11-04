@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -7,6 +7,7 @@
 #pragma once
 
 #include <AK/HashMap.h>
+#include <LibGfx/Path.h>
 #include <LibGfx/Point.h>
 #include <LibWeb/Layout/Box.h>
 #include <LibWeb/Layout/LineBox.h>
@@ -23,6 +24,35 @@ enum class SizeConstraint {
 
 class AvailableSize;
 class AvailableSpace;
+
+// https://www.w3.org/TR/css-position-3/#static-position-rectangle
+struct StaticPositionRect {
+    enum class Alignment {
+        Start,
+        Center,
+        End,
+    };
+
+    CSSPixelRect rect;
+    Alignment horizontal_alignment { Alignment::Start };
+    Alignment vertical_alignment { Alignment::Start };
+
+    CSSPixelPoint aligned_position_for_box_with_size(CSSPixelSize const& size) const
+    {
+        CSSPixelPoint position = rect.location();
+        if (horizontal_alignment == Alignment::Center)
+            position.set_x(position.x() + (rect.width() - size.width()) / 2);
+        else if (horizontal_alignment == Alignment::End)
+            position.set_x(position.x() + rect.width() - size.width());
+
+        if (vertical_alignment == Alignment::Center)
+            position.set_y(position.y() + (rect.height() - size.height()) / 2);
+        else if (vertical_alignment == Alignment::End)
+            position.set_y(position.y() + rect.height() - size.height());
+
+        return position;
+    }
+};
 
 struct LayoutState {
     LayoutState()
@@ -100,9 +130,6 @@ struct LayoutState {
         CSSPixels inset_top { 0 };
         CSSPixels inset_bottom { 0 };
 
-        // Used for calculating the static position of an abspos block-level box.
-        CSSPixels vertical_offset_of_parent_block_container { 0 };
-
         Vector<LineBox> line_boxes;
 
         CSSPixels margin_box_left() const { return margin_left + border_left_collapsed() + padding_left; }
@@ -138,6 +165,21 @@ struct LayoutState {
         void set_computed_svg_transforms(Painting::SVGGraphicsPaintable::ComputedTransforms const& computed_transforms) { m_computed_svg_transforms = computed_transforms; }
         auto const& computed_svg_transforms() const { return m_computed_svg_transforms; }
 
+        void set_grid_template_columns(RefPtr<CSS::GridTrackSizeListStyleValue> used_values_for_grid_template_columns) { m_grid_template_columns = move(used_values_for_grid_template_columns); }
+        auto const& grid_template_columns() const { return m_grid_template_columns; }
+
+        void set_grid_template_rows(RefPtr<CSS::GridTrackSizeListStyleValue> used_values_for_grid_template_rows) { m_grid_template_rows = move(used_values_for_grid_template_rows); }
+        auto const& grid_template_rows() const { return m_grid_template_rows; }
+
+        void set_static_position_rect(StaticPositionRect const& static_position_rect) { m_static_position_rect = static_position_rect; }
+        CSSPixelPoint static_position() const
+        {
+            CSSPixelSize size;
+            size.set_width(content_width() + padding_left + padding_right + border_left + border_right + margin_left + margin_right);
+            size.set_height(content_height() + padding_top + padding_bottom + border_top + border_bottom + margin_top + margin_bottom);
+            return m_static_position_rect->aligned_position_for_box_with_size(size);
+        }
+
     private:
         AvailableSize available_width_inside() const;
         AvailableSize available_height_inside() const;
@@ -165,6 +207,11 @@ struct LayoutState {
 
         Optional<Gfx::Path> m_computed_svg_path;
         Optional<Painting::SVGGraphicsPaintable::ComputedTransforms> m_computed_svg_transforms;
+
+        RefPtr<CSS::GridTrackSizeListStyleValue> m_grid_template_columns;
+        RefPtr<CSS::GridTrackSizeListStyleValue> m_grid_template_rows;
+
+        Optional<StaticPositionRect> m_static_position_rect;
     };
 
     // Commits the used values produced by layout and builds a paintable tree.

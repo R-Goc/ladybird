@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2023, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -110,7 +110,7 @@ void HTMLImageElement::form_associated_element_attribute_changed(FlyString const
     }
 }
 
-JS::GCPtr<Layout::Node> HTMLImageElement::create_layout_node(NonnullRefPtr<CSS::StyleProperties> style)
+JS::GCPtr<Layout::Node> HTMLImageElement::create_layout_node(CSS::StyleProperties style)
 {
     return heap().allocate_without_realm<Layout::ImageBox>(document(), *this, move(style), *this);
 }
@@ -191,7 +191,7 @@ unsigned HTMLImageElement::width() const
 
 WebIDL::ExceptionOr<void> HTMLImageElement::set_width(unsigned width)
 {
-    return set_attribute(HTML::AttributeNames::width, MUST(String::number(width)));
+    return set_attribute(HTML::AttributeNames::width, String::number(width));
 }
 
 // https://html.spec.whatwg.org/multipage/embedded-content.html#dom-img-height
@@ -220,7 +220,7 @@ unsigned HTMLImageElement::height() const
 
 WebIDL::ExceptionOr<void> HTMLImageElement::set_height(unsigned height)
 {
-    return set_attribute(HTML::AttributeNames::height, MUST(String::number(height)));
+    return set_attribute(HTML::AttributeNames::height, String::number(height));
 }
 
 // https://html.spec.whatwg.org/multipage/embedded-content.html#dom-img-naturalwidth
@@ -275,11 +275,14 @@ bool HTMLImageElement::complete() const
 String HTMLImageElement::current_src() const
 {
     // The currentSrc IDL attribute must return the img element's current request's current URL.
-    return MUST(m_current_request->current_url().to_string());
+    auto current_url = m_current_request->current_url();
+    if (!current_url.is_valid())
+        return {};
+    return MUST(current_url.to_string());
 }
 
 // https://html.spec.whatwg.org/multipage/embedded-content.html#dom-img-decode
-WebIDL::ExceptionOr<JS::NonnullGCPtr<JS::Promise>> HTMLImageElement::decode() const
+WebIDL::ExceptionOr<JS::NonnullGCPtr<WebIDL::Promise>> HTMLImageElement::decode() const
 {
     auto& realm = this->realm();
 
@@ -292,8 +295,8 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<JS::Promise>> HTMLImageElement::decode() co
             if (this->document().is_fully_active())
                 return false;
 
-            auto exception = WebIDL::EncodingError::create(realm, "Node document not fully active"_fly_string);
-            HTML::TemporaryExecutionContext context(HTML::relevant_settings_object(*this));
+            auto exception = WebIDL::EncodingError::create(realm, "Node document not fully active"_string);
+            HTML::TemporaryExecutionContext context(realm);
             WebIDL::reject_promise(realm, promise, exception);
             return true;
         };
@@ -302,8 +305,8 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<JS::Promise>> HTMLImageElement::decode() co
             if (this->current_request().state() != ImageRequest::State::Broken)
                 return false;
 
-            auto exception = WebIDL::EncodingError::create(realm, "Current request state is broken"_fly_string);
-            HTML::TemporaryExecutionContext context(HTML::relevant_settings_object(*this));
+            auto exception = WebIDL::EncodingError::create(realm, "Current request state is broken"_string);
+            HTML::TemporaryExecutionContext context(realm);
             WebIDL::reject_promise(realm, promise, exception);
             return true;
         };
@@ -320,12 +323,12 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<JS::Promise>> HTMLImageElement::decode() co
             return;
 
         // 2.2 Otherwise, in parallel wait for one of the following cases to occur, and perform the corresponding actions:
-        Platform::EventLoopPlugin::the().deferred_invoke([this, promise, &realm, reject_if_document_not_fully_active, reject_if_current_request_state_broken] {
-            Platform::EventLoopPlugin::the().spin_until([&] {
+        Platform::EventLoopPlugin::the().deferred_invoke(JS::create_heap_function(heap(), [this, promise, &realm, reject_if_document_not_fully_active, reject_if_current_request_state_broken] {
+            Platform::EventLoopPlugin::the().spin_until(JS::create_heap_function(heap(), [&] {
                 auto state = this->current_request().state();
 
                 return !this->document().is_fully_active() || state == ImageRequest::State::Broken || state == ImageRequest::State::CompletelyAvailable;
-            });
+            }));
 
             // 2.2.1 This img element's node document stops being fully active
             // 2.2.1 Reject promise with an "EncodingError" DOMException.
@@ -351,13 +354,13 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<JS::Promise>> HTMLImageElement::decode() co
                 // (Typically, this would only be violated in low-memory situations that require evicting decoded image data, or when the image is too large
                 // to keep in decoded form for this period of time.)
 
-                HTML::TemporaryExecutionContext context(HTML::relevant_settings_object(*this));
+                HTML::TemporaryExecutionContext context(realm);
                 WebIDL::resolve_promise(realm, promise, JS::js_undefined());
             }
-        });
+        }));
     }));
 
-    return JS::NonnullGCPtr { verify_cast<JS::Promise>(*promise->promise()) };
+    return promise;
 }
 
 Optional<ARIA::Role> HTMLImageElement::default_role() const
@@ -388,7 +391,7 @@ public:
     {
     }
 
-    void enqueue(JS::SafeFunction<void()> callback)
+    void enqueue(JS::Handle<JS::HeapFunction<void()>> callback)
     {
         // NOTE: We don't want to flush the queue on every image load, since that would be slow.
         //       However, we don't want to keep growing the batch forever either.
@@ -404,11 +407,11 @@ private:
     {
         auto queue = move(m_queue);
         for (auto& callback : queue)
-            callback();
+            callback->function()();
     }
 
     NonnullRefPtr<Core::Timer> m_timer;
-    Vector<JS::SafeFunction<void()>> m_queue;
+    Vector<JS::Handle<JS::HeapFunction<void()>>> m_queue;
 };
 
 static BatchingDispatcher& batching_dispatcher()
@@ -673,7 +676,7 @@ void HTMLImageElement::add_callbacks_to_image_request(JS::NonnullGCPtr<ImageRequ
 {
     image_request->add_callbacks(
         [this, image_request, maybe_omit_events, url_string, previous_url]() {
-            batching_dispatcher().enqueue([this, image_request, maybe_omit_events, url_string, previous_url] {
+            batching_dispatcher().enqueue(JS::create_heap_function(realm().heap(), [this, image_request, maybe_omit_events, url_string, previous_url] {
                 VERIFY(image_request->shared_resource_request());
                 auto image_data = image_request->shared_resource_request()->image_data();
                 image_request->set_image_data(image_data);
@@ -712,7 +715,7 @@ void HTMLImageElement::add_callbacks_to_image_request(JS::NonnullGCPtr<ImageRequ
                 }
 
                 m_load_event_delayer.clear();
-            });
+            }));
         },
         [this, image_request, maybe_omit_events, url_string, previous_url]() {
             // The image data is not in a supported file format;
@@ -743,9 +746,9 @@ void HTMLImageElement::did_set_viewport_rect(CSSPixelRect const& viewport_rect)
     if (viewport_rect.size() == m_last_seen_viewport_size)
         return;
     m_last_seen_viewport_size = viewport_rect.size();
-    batching_dispatcher().enqueue([this] {
+    batching_dispatcher().enqueue(JS::create_heap_function(realm().heap(), [this] {
         react_to_changes_in_the_environment();
-    });
+    }));
 }
 
 // https://html.spec.whatwg.org/multipage/images.html#img-environment-changes
@@ -867,7 +870,7 @@ void HTMLImageElement::react_to_changes_in_the_environment()
 
         // Set the callbacks to handle steps 6 and 7 before starting the fetch request.
         image_request->add_callbacks(
-            [step_15, selected_source = selected_source.value(), image_request, key]() mutable {
+            [this, step_15, selected_source = selected_source.value(), image_request, key]() mutable {
                 // 6. If response's unsafe response is a network error
                 // NOTE: This is handled in the second callback below.
 
@@ -881,14 +884,14 @@ void HTMLImageElement::react_to_changes_in_the_environment()
 
                 // then let pending request be null and abort these steps.
 
-                batching_dispatcher().enqueue([step_15, selected_source = move(selected_source), image_request, key] {
+                batching_dispatcher().enqueue(JS::create_heap_function(realm().heap(), [step_15, selected_source = move(selected_source), image_request, key] {
                     // 7. Otherwise, response's unsafe response is image request's image data. It can be either CORS-same-origin
                     //    or CORS-cross-origin; this affects the image's interaction with other APIs (e.g., when used on a canvas).
                     VERIFY(image_request->shared_resource_request());
                     auto image_data = image_request->shared_resource_request()->image_data();
                     image_request->set_image_data(image_data);
                     step_15(selected_source, image_request, key, *image_data);
-                });
+                }));
             },
             [this]() {
                 // 6. If response's unsafe response is a network error
@@ -987,7 +990,12 @@ static void update_the_source_set(DOM::Element& element)
         });
     }
 
-    // 4. For each child in elements:
+    // 4. Let img be el if el is an img element, otherwise null.
+    HTMLImageElement* img = nullptr;
+    if (is<HTMLImageElement>(element))
+        img = static_cast<HTMLImageElement*>(&element);
+
+    // 5. For each child in elements:
     for (auto child : elements) {
         // 1. If child is el:
         if (child == &element) {
@@ -1036,11 +1044,13 @@ static void update_the_source_set(DOM::Element& element)
                     default_source = href_value.release_value();
             }
 
-            // 10. Let el's source set be the result of creating a source set given default source, srcset, and sizes.
+            // 10. Let el's source set be the result of creating a source set given default source, srcset, sizes, and img.
             if (is<HTMLImageElement>(element))
-                static_cast<HTMLImageElement&>(element).set_source_set(SourceSet::create(element, default_source, srcset, sizes));
+                static_cast<HTMLImageElement&>(element).set_source_set(SourceSet::create(element, default_source, srcset, sizes, img));
             else if (is<HTMLLinkElement>(element))
                 TODO();
+
+            // 11. Return.
             return;
         }
         // 2. If child is not a source element, then continue.
@@ -1067,8 +1077,8 @@ static void update_the_source_set(DOM::Element& element)
             }
         }
 
-        // 7. Parse child's sizes attribute, and let source set's source size be the returned value.
-        source_set.m_source_size = parse_a_sizes_attribute(element.document(), child->get_attribute_value(HTML::AttributeNames::sizes));
+        // 7. Parse child's sizes attribute with img, and let source set's source size be the returned value.
+        source_set.m_source_size = parse_a_sizes_attribute(element, child->get_attribute_value(HTML::AttributeNames::sizes), img);
 
         // 8. If child has a type attribute, and its value is an unknown or unsupported MIME type, continue to the next child.
         if (child->has_attribute(HTML::AttributeNames::type)) {
@@ -1140,6 +1150,45 @@ void HTMLImageElement::animate()
 
     if (paintable())
         paintable()->set_needs_display();
+}
+
+StringView HTMLImageElement::decoding() const
+{
+    switch (m_decoding_hint) {
+    case ImageDecodingHint::Sync:
+        return "sync"sv;
+    case ImageDecodingHint::Async:
+        return "async"sv;
+    case ImageDecodingHint::Auto:
+        return "auto"sv;
+    default:
+        VERIFY_NOT_REACHED();
+    }
+}
+
+void HTMLImageElement::set_decoding(String decoding)
+{
+    if (decoding == "sync"sv) {
+        dbgln("FIXME: HTMLImageElement.decoding = 'sync' is not implemented yet");
+        m_decoding_hint = ImageDecodingHint::Sync;
+    } else if (decoding == "async"sv) {
+        dbgln("FIXME: HTMLImageElement.decoding = 'async' is not implemented yet");
+        m_decoding_hint = ImageDecodingHint::Async;
+    } else
+        m_decoding_hint = ImageDecodingHint::Auto;
+}
+
+bool HTMLImageElement::allows_auto_sizes() const
+{
+    // An img element allows auto-sizes if:
+    // - its loading attribute is in the Lazy state, and
+    // - its sizes attribute's value is "auto" (ASCII case-insensitive), or starts with "auto," (ASCII case-insensitive).
+    if (lazy_loading_attribute() != LazyLoading::Lazy)
+        return false;
+    auto sizes = attribute(HTML::AttributeNames::sizes);
+    return sizes.has_value()
+        && (sizes->equals_ignoring_ascii_case("auto"sv)
+            || sizes->starts_with_bytes("auto,"sv, AK::CaseSensitivity::CaseInsensitive));
 }
 
 }

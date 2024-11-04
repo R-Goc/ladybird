@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Max Wipfli <mail@maxwipfli.ch>
  * Copyright (c) 2023-2024, Shannon Booth <shannon@serenityos.org>
  *
@@ -9,9 +9,12 @@
 #pragma once
 
 #include <AK/ByteString.h>
+#include <AK/CopyOnWrite.h>
 #include <AK/String.h>
 #include <AK/StringView.h>
 #include <AK/Vector.h>
+#include <LibURL/Host.h>
+#include <LibURL/Origin.h>
 
 // On Linux distros that use mlibc `basename` is defined as a macro that expands to `__mlibc_gnu_basename` or `__mlibc_gnu_basename_c`, so we undefine it.
 #if defined(AK_OS_LINUX) && defined(basename)
@@ -37,27 +40,12 @@ enum class ExcludeFragment {
     Yes
 };
 
-// https://url.spec.whatwg.org/#concept-ipv4
-// An IPv4 address is a 32-bit unsigned integer that identifies a network address. [RFC791]
-// FIXME: It would be nice if this were an AK::IPv4Address
-using IPv4Address = u32;
-
-// https://url.spec.whatwg.org/#concept-ipv6
-// An IPv6 address is a 128-bit unsigned integer that identifies a network address. For the purposes of this standard
-// it is represented as a list of eight 16-bit unsigned integers, also known as IPv6 pieces. [RFC4291]
-// FIXME: It would be nice if this were an AK::IPv6Address
-using IPv6Address = Array<u16, 8>;
-
-// https://url.spec.whatwg.org/#concept-host
-// A host is a domain, an IP address, an opaque host, or an empty host. Typically a host serves as a network address,
-// but it is sometimes used as opaque identifier in URLs where a network address is not necessary.
-using Host = Variant<IPv4Address, IPv6Address, String, Empty>;
-
 // https://w3c.github.io/FileAPI/#blob-url-entry
 // NOTE: This represents the raw bytes behind a 'Blob' (and does not yet support a MediaSourceQuery).
 struct BlobURLEntry {
     String type;
     ByteBuffer byte_buffer;
+    Origin environment_origin;
 };
 
 void append_percent_encoded_if_necessary(StringBuilder&, u32 code_point, PercentEncodeSet set = PercentEncodeSet::Userinfo);
@@ -72,34 +60,6 @@ enum class SpaceAsPlus {
 };
 String percent_encode(StringView input, PercentEncodeSet set = PercentEncodeSet::Userinfo, SpaceAsPlus = SpaceAsPlus::No);
 ByteString percent_decode(StringView input);
-
-template<typename T>
-class CopyOnWrite {
-public:
-    CopyOnWrite()
-        : m_value(adopt_ref(*new T))
-    {
-    }
-    T& mutable_value()
-    {
-        if (m_value->ref_count() > 1)
-            m_value = m_value->clone();
-        return *m_value;
-    }
-    T const& value() const { return *m_value; }
-
-    operator T const&() const { return value(); }
-    operator T&() { return mutable_value(); }
-
-    T const* operator->() const { return &value(); }
-    T* operator->() { return &mutable_value(); }
-
-    T const* ptr() const { return m_value.ptr(); }
-    T* ptr() { return m_value.ptr(); }
-
-private:
-    NonnullRefPtr<T> m_value;
-};
 
 // https://url.spec.whatwg.org/#url-representation
 // A URL is a struct that represents a universal identifier. To disambiguate from a valid URL string it can also be referred to as a URL record.
@@ -162,8 +122,7 @@ public:
     ByteString to_byte_string() const { return serialize(); }
     ErrorOr<String> to_string() const;
 
-    // HTML origin
-    ByteString serialize_origin() const;
+    Origin origin() const;
 
     bool equals(URL const& other, ExcludeFragment = ExcludeFragment::No) const;
 
@@ -233,7 +192,7 @@ private:
         // A URL also has an associated blob URL entry that is either null or a blob URL entry. It is initially null.
         Optional<BlobURLEntry> blob_url_entry;
     };
-    CopyOnWrite<Data> m_data;
+    AK::CopyOnWrite<Data> m_data;
 };
 
 URL create_with_url_or_path(ByteString const&);

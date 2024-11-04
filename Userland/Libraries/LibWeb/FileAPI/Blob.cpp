@@ -17,6 +17,7 @@
 #include <LibWeb/HTML/Scripting/TemporaryExecutionContext.h>
 #include <LibWeb/HTML/StructuredSerialize.h>
 #include <LibWeb/Infra/Strings.h>
+#include <LibWeb/MimeSniff/MimeType.h>
 #include <LibWeb/Streams/AbstractOperations.h>
 #include <LibWeb/Streams/ReadableStreamDefaultReader.h>
 #include <LibWeb/WebIDL/AbstractOperations.h>
@@ -197,17 +198,17 @@ JS::NonnullGCPtr<Blob> Blob::create(JS::Realm& realm, Optional<Vector<BlobPart>>
     auto type = String {};
     // 3. If the type member of the options argument is not the empty string, run the following sub-steps:
     if (options.has_value() && !options->type.is_empty()) {
-        // 1. If the type member is provided and is not the empty string, let t be set to the type dictionary member.
+        // FIXME: 1. If the type member is provided and is not the empty string, let t be set to the type dictionary member.
         //    If t contains any characters outside the range U+0020 to U+007E, then set t to the empty string and return from these substeps.
-        //    NOTE: t is set to empty string at declaration.
-        if (!options->type.is_empty()) {
-            if (is_basic_latin(options->type))
-                type = options->type;
-        }
+        // FIXME: 2. Convert every character in t to ASCII lowercase.
 
-        // 2. Convert every character in t to ASCII lowercase.
-        if (!type.is_empty())
-            type = MUST(Infra::to_ascii_lowercase(type));
+        // NOTE: The spec is out of date, and we are supposed to call into the MimeType parser here.
+        if (!options->type.is_empty()) {
+            auto maybe_parsed_type = Web::MimeSniff::MimeType::parse(options->type);
+
+            if (maybe_parsed_type.has_value())
+                type = maybe_parsed_type->serialized();
+        }
     }
 
     // 4. Return a Blob object referring to bytes as its associated byte sequence, with its size set to the length of bytes, and its type set to the value of t from the substeps above.
@@ -222,65 +223,84 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<Blob>> Blob::construct_impl(JS::Realm& real
 // https://w3c.github.io/FileAPI/#dfn-slice
 WebIDL::ExceptionOr<JS::NonnullGCPtr<Blob>> Blob::slice(Optional<i64> start, Optional<i64> end, Optional<String> const& content_type)
 {
+    // 1. Let sliceStart, sliceEnd, and sliceContentType be null.
+    // 2. If start is given, set sliceStart to start.
+    // 3. If end is given, set sliceEnd to end.
+    // 3. If contentType is given, set sliceContentType to contentType.
+    // 4. Return the result of slice blob given this, sliceStart, sliceEnd, and sliceContentType.
+    return slice_blob(start, end, content_type);
+}
+
+// https://w3c.github.io/FileAPI/#slice-blob
+WebIDL::ExceptionOr<JS::NonnullGCPtr<Blob>> Blob::slice_blob(Optional<i64> start, Optional<i64> end, Optional<String> const& content_type)
+{
     auto& vm = realm().vm();
 
-    // 1. The optional start parameter is a value for the start point of a slice() call, and must be treated as a byte-order position, with the zeroth position representing the first byte.
-    //    User agents must process slice() with start normalized according to the following:
+    // 1. Let originalSize be blob’s size.
+    auto original_size = size();
+
+    // 2. The start parameter, if non-null, is a value for the start point of a slice blob call, and must be treated as a byte-order position,
+    //    with the zeroth position representing the first byte. User agents must normalize start according to the following:
     i64 relative_start;
     if (!start.has_value()) {
-        // a. If the optional start parameter is not used as a parameter when making this call, let relativeStart be 0.
+        // a. If start is null, let relativeStart be 0.
         relative_start = 0;
     } else {
         auto start_value = start.value();
-        // b. If start is negative, let relativeStart be max((size + start), 0).
+
+        // b. If start is negative, let relativeStart be max((originalSize + start), 0).
         if (start_value < 0) {
-            relative_start = max((size() + start_value), 0);
+            relative_start = max((static_cast<i64>(original_size) + start_value), 0);
         }
-        // c. Else, let relativeStart be min(start, size).
+        // c. Otherwise, let relativeStart be min(start, originalSize).
         else {
-            relative_start = min(start_value, size());
+            relative_start = min(start_value, original_size);
         }
     }
 
-    // 2. The optional end parameter is a value for the end point of a slice() call. User agents must process slice() with end normalized according to the following:
+    // 3. The end parameter, if non-null. is a value for the end point of a slice blob call. User agents must normalize end according to the following:
     i64 relative_end;
     if (!end.has_value()) {
-        // a. If the optional end parameter is not used as a parameter when making this call, let relativeEnd be size.
-        relative_end = size();
+        // a. If end is null, let relativeEnd be originalSize.
+        relative_end = original_size;
     } else {
         auto end_value = end.value();
-        // b. If end is negative, let relativeEnd be max((size + end), 0).
+
+        // b. If end is negative, let relativeEnd be max((originalSize + end), 0).
         if (end_value < 0) {
-            relative_end = max((size() + end_value), 0);
+            relative_end = max((static_cast<i64>(original_size) + end_value), 0);
         }
-        // c Else, let relativeEnd be min(end, size).
+        // c. Otherwise, let relativeEnd be min(end, originalSize).
         else {
-            relative_end = min(end_value, size());
+            relative_end = min(end_value, original_size);
         }
     }
 
-    // 3. The optional contentType parameter is used to set the ASCII-encoded string in lower case representing the media type of the Blob.
-    //    User agents must process the slice() with contentType normalized according to the following:
+    // 4. The contentType parameter, if non-null, is used to set the ASCII-encoded string in lower case representing the media type of the Blob.
+    //    User agents must normalize contentType according to the following:
     String relative_content_type;
     if (!content_type.has_value()) {
-        // a. If the contentType parameter is not provided, let relativeContentType be set to the empty string.
-        relative_content_type = String {};
+        // a. If contentType is null, let relativeContentType be set to the empty string.
+        relative_content_type = {};
     } else {
-        // b. Else let relativeContentType be set to contentType and run the substeps below:
+        // b. Otherwise, let relativeContentType be set to contentType and run the substeps below:
 
-        // 1. If relativeContentType contains any characters outside the range of U+0020 to U+007E, then set relativeContentType to the empty string and return from these substeps.
-        //    NOTE: contentType is set to empty string at declaration.
-        if (is_basic_latin(content_type.value())) {
-            // 2. Convert every character in relativeContentType to ASCII lowercase.
-            relative_content_type = TRY_OR_THROW_OOM(vm, Infra::to_ascii_lowercase(content_type.value()));
+        // 1. If relativeContentType contains any characters outside the range of U+0020 to U+007E, then set relativeContentType to the empty string
+        //    and return from these substeps:
+        if (!is_basic_latin(content_type.value())) {
+            relative_content_type = {};
+        }
+        // 2. Convert every character in relativeContentType to ASCII lowercase.
+        else {
+            relative_content_type = content_type.value().to_ascii_lowercase();
         }
     }
 
-    // 4. Let span be max((relativeEnd - relativeStart), 0).
+    // 5. Let span be max((relativeEnd - relativeStart), 0).
     auto span = max((relative_end - relative_start), 0);
 
-    // 5. Return a new Blob object S with the following characteristics:
-    // a. S refers to span consecutive bytes from this, beginning with the byte at byte-order position relativeStart.
+    // 6. Return a new Blob object S with the following characteristics:
+    // a. S refers to span consecutive bytes from blob’s associated byte sequence, beginning with the byte at byte-order position relativeStart.
     // b. S.size = span.
     // c. S.type = relativeContentType.
     auto byte_buffer = TRY_OR_THROW_OOM(vm, m_byte_buffer.slice(relative_start, span));
@@ -315,17 +335,17 @@ JS::NonnullGCPtr<Streams::ReadableStream> Blob::get_stream()
 
             // 2. Queue a global task on the file reading task source given blob’s relevant global object to perform the following steps:
             HTML::queue_global_task(HTML::Task::Source::FileReading, realm.global_object(), JS::create_heap_function(heap(), [stream, bytes = move(bytes)]() {
-                // NOTE: Using an TemporaryExecutionContext here results in a crash in the method HTML::incumbent_settings_object()
+                // NOTE: Using an TemporaryExecutionContext here results in a crash in the method HTML::incumbent_realm()
                 //       since we end up in a state where we have no execution context + an event loop with an empty incumbent
-                //       settings object stack. We still need an execution context therefore we push the realm's execution context
-                //       onto the realm's VM, and we need an incumbent settings object which is pushed onto the incumbent settings
-                //       object stack by EnvironmentSettings::prepare_to_run_callback().
+                //       realm stack. We still need an execution context therefore we push the realm's execution context
+                //       onto the realm's VM, and we need an incumbent realm which is pushed onto the incumbent realm stack
+                //       by HTML::prepare_to_run_callback().
                 auto& realm = stream->realm();
                 auto& environment_settings = Bindings::host_defined_environment_settings_object(realm);
                 realm.vm().push_execution_context(environment_settings.realm_execution_context());
-                environment_settings.prepare_to_run_callback();
-                ScopeGuard const guard = [&environment_settings, &realm] {
-                    environment_settings.clean_up_after_running_callback();
+                HTML::prepare_to_run_callback(realm);
+                ScopeGuard const guard = [&realm] {
+                    HTML::clean_up_after_running_callback(realm);
                     realm.vm().pop_execution_context();
                 };
 
@@ -357,7 +377,7 @@ JS::NonnullGCPtr<Streams::ReadableStream> Blob::get_stream()
 }
 
 // https://w3c.github.io/FileAPI/#dom-blob-text
-JS::NonnullGCPtr<JS::Promise> Blob::text()
+JS::NonnullGCPtr<WebIDL::Promise> Blob::text()
 {
     auto& realm = this->realm();
     auto& vm = realm.vm();
@@ -387,7 +407,7 @@ JS::NonnullGCPtr<JS::Promise> Blob::text()
 }
 
 // https://w3c.github.io/FileAPI/#dom-blob-arraybuffer
-JS::NonnullGCPtr<JS::Promise> Blob::array_buffer()
+JS::NonnullGCPtr<WebIDL::Promise> Blob::array_buffer()
 {
     auto& realm = this->realm();
 
@@ -414,7 +434,7 @@ JS::NonnullGCPtr<JS::Promise> Blob::array_buffer()
 }
 
 // https://w3c.github.io/FileAPI/#dom-blob-bytes
-JS::NonnullGCPtr<JS::Promise> Blob::bytes()
+JS::NonnullGCPtr<WebIDL::Promise> Blob::bytes()
 {
     auto& realm = this->realm();
 

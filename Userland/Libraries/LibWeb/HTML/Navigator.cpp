@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2022, Andrew Kaster <akaster@serenityos.org>
  * Copyright (c) 2022, Linus Groh <linusg@serenityos.org>
+ * Copyright (c) 2024, Jamie Mansfield <jmansfield@cadixdev.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -12,6 +13,7 @@
 #include <LibWeb/Clipboard/Clipboard.h>
 #include <LibWeb/HTML/Navigator.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
+#include <LibWeb/HTML/ServiceWorkerContainer.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/Page/Page.h>
@@ -43,7 +45,7 @@ bool Navigator::pdf_viewer_enabled() const
 {
     // The NavigatorPlugins mixin's pdfViewerEnabled getter steps are to return the user agent's PDF viewer supported.
     // NOTE: The NavigatorPlugins mixin should only be exposed on the Window object.
-    auto const& window = verify_cast<HTML::Window>(HTML::current_global_object());
+    auto const& window = verify_cast<HTML::Window>(HTML::current_principal_global_object());
     return window.page().pdf_viewer_supported();
 }
 
@@ -53,7 +55,7 @@ bool Navigator::webdriver() const
     // Returns true if webdriver-active flag is set, false otherwise.
 
     // NOTE: The NavigatorAutomationInformation interface should not be exposed on WorkerNavigator.
-    auto const& window = verify_cast<HTML::Window>(HTML::current_global_object());
+    auto const& window = verify_cast<HTML::Window>(HTML::current_principal_global_object());
     return window.page().is_webdriver_active();
 }
 
@@ -64,6 +66,8 @@ void Navigator::visit_edges(Cell::Visitor& visitor)
     visitor.visit(m_plugin_array);
     visitor.visit(m_clipboard);
     visitor.visit(m_user_activation);
+    visitor.visit(m_service_worker_container);
+    visitor.visit(m_media_capabilities);
 }
 
 JS::NonnullGCPtr<MimeTypeArray> Navigator::mime_types()
@@ -111,6 +115,20 @@ Optional<FlyString> Navigator::do_not_track() const
         return "1"_fly_string;
 
     return {};
+}
+
+JS::NonnullGCPtr<ServiceWorkerContainer> Navigator::service_worker()
+{
+    if (!m_service_worker_container)
+        m_service_worker_container = heap().allocate<ServiceWorkerContainer>(realm(), realm());
+    return *m_service_worker_container;
+}
+
+JS::NonnullGCPtr<MediaCapabilitiesAPI::MediaCapabilities> Navigator::media_capabilities()
+{
+    if (!m_media_capabilities)
+        m_media_capabilities = heap().allocate<MediaCapabilitiesAPI::MediaCapabilities>(realm(), realm());
+    return *m_media_capabilities;
 }
 
 }

@@ -5,6 +5,7 @@
  */
 
 #include <LibWebView/Application.h>
+#include <LibWebView/CookieJar.h>
 #include <LibWebView/SearchEngine.h>
 
 #import <Application/ApplicationDelegate.h>
@@ -30,9 +31,6 @@
 
 @interface ApplicationDelegate () <TaskManagerDelegate>
 {
-    // This will always be populated, but we cannot have a non-default constructible instance variable.
-    OwnPtr<WebView::CookieJar> m_cookie_jar;
-
     Web::CSS::PreferredColorScheme m_preferred_color_scheme;
     Web::CSS::PreferredContrast m_preferred_contrast;
     Web::CSS::PreferredMotion m_preferred_motion;
@@ -61,7 +59,7 @@
 
 @implementation ApplicationDelegate
 
-- (instancetype)initWithCookieJar:(NonnullOwnPtr<WebView::CookieJar>)cookie_jar
+- (instancetype)init
 {
     if (self = [super init]) {
         [NSApp setMainMenu:[[NSMenu alloc] init]];
@@ -78,8 +76,6 @@
         [[NSApp mainMenu] addItem:[self createHelpMenu]];
 
         self.managed_tabs = [[NSMutableArray alloc] init];
-
-        m_cookie_jar = move(cookie_jar);
 
         m_preferred_color_scheme = Web::CSS::PreferredColorScheme::Auto;
         m_preferred_contrast = Web::CSS::PreferredContrast::Auto;
@@ -101,7 +97,10 @@
                    activateTab:(Web::HTML::ActivateTab)activate_tab
 {
     auto* controller = [self createNewTab:activate_tab fromTab:tab];
-    [controller loadURL:url.value_or(WebView::Application::chrome_options().new_tab_page_url)];
+
+    if (url.has_value()) {
+        [controller loadURL:*url];
+    }
 
     return controller;
 }
@@ -113,6 +112,20 @@
 {
     auto* controller = [self createNewTab:activate_tab fromTab:tab];
     [controller loadHTML:html url:url];
+
+    return controller;
+}
+
+- (nonnull TabController*)createChildTab:(Optional<URL::URL> const&)url
+                                 fromTab:(nonnull Tab*)tab
+                             activateTab:(Web::HTML::ActivateTab)activate_tab
+                               pageIndex:(u64)page_index
+{
+    auto* controller = [self createChildTab:activate_tab fromTab:tab pageIndex:page_index];
+
+    if (url.has_value()) {
+        [controller loadURL:*url];
+    }
 
     return controller;
 }
@@ -136,11 +149,6 @@
             [self.task_manager_controller.window close];
         }
     }
-}
-
-- (WebView::CookieJar&)cookieJar
-{
-    return *m_cookie_jar;
 }
 
 - (Web::CSS::PreferredColorScheme)preferredColorScheme
@@ -181,6 +189,29 @@
                                fromTab:(nullable Tab*)tab
 {
     auto* controller = [[TabController alloc] init];
+    [self initializeTabController:controller
+                      activateTab:activate_tab
+                          fromTab:tab];
+
+    return controller;
+}
+
+- (nonnull TabController*)createChildTab:(Web::HTML::ActivateTab)activate_tab
+                                 fromTab:(nonnull Tab*)tab
+                               pageIndex:(u64)page_index
+{
+    auto* controller = [[TabController alloc] initAsChild:tab pageIndex:page_index];
+    [self initializeTabController:controller
+                      activateTab:activate_tab
+                          fromTab:tab];
+
+    return controller;
+}
+
+- (void)initializeTabController:(TabController*)controller
+                    activateTab:(Web::HTML::ActivateTab)activate_tab
+                        fromTab:(nullable Tab*)tab
+{
     [controller showWindow:nil];
 
     if (tab) {
@@ -197,7 +228,7 @@
     }
 
     [self.managed_tabs addObject:controller];
-    return controller;
+    [controller onCreateNewTab];
 }
 
 - (void)closeCurrentTab:(id)sender
@@ -333,7 +364,7 @@
 
 - (void)dumpCookies:(id)sender
 {
-    m_cookie_jar->dump_cookies();
+    WebView::Application::cookie_jar().dump_cookies();
 }
 
 - (NSMenuItem*)createApplicationMenu
@@ -530,6 +561,10 @@
 
     [submenu addItem:search_engine_menu_item];
 
+    [submenu addItem:[[NSMenuItem alloc] initWithTitle:@"Enable Autoplay"
+                                                action:@selector(toggleAutoplay:)
+                                         keyEquivalent:@""]];
+
     [menu setSubmenu:submenu];
     return menu;
 }
@@ -610,9 +645,6 @@
                                          keyEquivalent:@""]];
     [submenu addItem:[[NSMenuItem alloc] initWithTitle:@"Dump Local Storage"
                                                 action:@selector(dumpLocalStorage:)
-                                         keyEquivalent:@""]];
-    [submenu addItem:[[NSMenuItem alloc] initWithTitle:@"Dump Connection Info"
-                                                action:@selector(dumpConnectionInfo:)
                                          keyEquivalent:@""]];
     [submenu addItem:[NSMenuItem separatorItem]];
 

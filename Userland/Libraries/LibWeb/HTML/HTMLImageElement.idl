@@ -9,7 +9,7 @@ interface HTMLImageElement : HTMLElement {
     [HTMLConstructor] constructor();
 
     [CEReactions, Reflect] attribute DOMString alt;
-    [CEReactions, Reflect] attribute DOMString src;
+    [CEReactions, Reflect, URL] attribute USVString src;
     [CEReactions, Reflect] attribute DOMString srcset;
     [CEReactions, Reflect] attribute DOMString sizes;
     [CEReactions, Enumerated=CORSSettingsAttribute, Reflect=crossorigin] attribute DOMString? crossOrigin;
@@ -22,7 +22,7 @@ interface HTMLImageElement : HTMLElement {
     readonly attribute boolean complete;
     readonly attribute USVString currentSrc;
     [CEReactions, Reflect=referrerpolicy, Enumerated=ReferrerPolicy] attribute DOMString referrerPolicy;
-    [FIXME, CEReactions] attribute DOMString decoding;
+    [CEReactions] attribute DOMString decoding;
     [CEReactions, Enumerated=LazyLoadingAttribute, Reflect] attribute DOMString loading;
     [CEReactions, Enumerated=FetchPriorityAttribute, Reflect=fetchpriority] attribute DOMString fetchPriority;
 
@@ -30,11 +30,11 @@ interface HTMLImageElement : HTMLElement {
 
     // Obsolete
     [CEReactions, Reflect] attribute DOMString name;
-    [CEReactions, Reflect] attribute USVString lowsrc;
+    [CEReactions, Reflect, URL] attribute USVString lowsrc;
     [CEReactions, Reflect] attribute DOMString align;
     [CEReactions, Reflect] attribute unsigned long hspace;
     [CEReactions, Reflect] attribute unsigned long vspace;
-    [CEReactions, Reflect=longdesc] attribute USVString longDesc;
+    [CEReactions, Reflect=longdesc, URL] attribute USVString longDesc;
 
     [CEReactions, LegacyNullToEmptyString, Reflect] attribute DOMString border;
 

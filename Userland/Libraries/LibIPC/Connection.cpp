@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021-2024, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2022, the SerenityOS developers.
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -14,25 +14,58 @@
 
 namespace IPC {
 
-ConnectionBase::ConnectionBase(IPC::Stub& local_stub, NonnullOwnPtr<Core::LocalSocket> socket, u32 local_endpoint_magic)
+ConnectionBase::ConnectionBase(IPC::Stub& local_stub, Transport transport, u32 local_endpoint_magic)
     : m_local_stub(local_stub)
-    , m_socket(move(socket))
+    , m_transport(move(transport))
     , m_local_endpoint_magic(local_endpoint_magic)
 {
     m_responsiveness_timer = Core::Timer::create_single_shot(3000, [this] { may_have_become_unresponsive(); });
-    m_socket->on_ready_to_read = [this] {
+
+    m_transport.set_up_read_hook([this] {
         NonnullRefPtr protect = *this;
         // FIXME: Do something about errors.
         (void)drain_messages_from_peer();
         handle_messages();
-    };
+    });
+
+    m_send_queue = adopt_ref(*new SendQueue);
+    m_send_thread = Threading::Thread::construct([this, queue = m_send_queue]() -> intptr_t {
+        for (;;) {
+            queue->mutex.lock();
+            while (queue->messages.is_empty() && queue->running)
+                queue->condition.wait();
+
+            if (!queue->running) {
+                queue->mutex.unlock();
+                break;
+            }
+
+            auto message = queue->messages.take_first();
+            queue->mutex.unlock();
+
+            if (auto result = message.transfer_message(m_transport); result.is_error()) {
+                dbgln("ConnectionBase::send_thread: {}", result.error());
+                continue;
+            }
+        }
+        return 0;
+    });
+    m_send_thread->start();
 }
 
-ConnectionBase::~ConnectionBase() = default;
+ConnectionBase::~ConnectionBase()
+{
+    {
+        Threading::MutexLocker locker(m_send_queue->mutex);
+        m_send_queue->running = false;
+        m_send_queue->condition.signal();
+    }
+    m_send_thread->detach();
+}
 
 bool ConnectionBase::is_open() const
 {
-    return m_socket->is_open();
+    return m_transport.is_open();
 }
 
 ErrorOr<void> ConnectionBase::post_message(Message const& message)
@@ -44,12 +77,13 @@ ErrorOr<void> ConnectionBase::post_message(MessageBuffer buffer)
 {
     // NOTE: If this connection is being shut down, but has not yet been destroyed,
     //       the socket will be closed. Don't try to send more messages.
-    if (!m_socket->is_open())
+    if (!m_transport.is_open())
         return Error::from_string_literal("Trying to post_message during IPC shutdown");
 
-    if (auto result = buffer.transfer_message(*m_socket); result.is_error()) {
-        shutdown_with_error(result.error());
-        return result.release_error();
+    {
+        Threading::MutexLocker locker(m_send_queue->mutex);
+        m_send_queue->messages.append(move(buffer));
+        m_send_queue->condition.signal();
     }
 
     m_responsiveness_timer->start();
@@ -58,7 +92,7 @@ ErrorOr<void> ConnectionBase::post_message(MessageBuffer buffer)
 
 void ConnectionBase::shutdown()
 {
-    m_socket->close();
+    m_transport.close();
     die();
 }
 
@@ -88,19 +122,12 @@ void ConnectionBase::handle_messages()
     }
 }
 
-void ConnectionBase::wait_for_socket_to_become_readable()
+void ConnectionBase::wait_for_transport_to_become_readable()
 {
-    auto maybe_did_become_readable = m_socket->can_read_without_blocking(-1);
-    if (maybe_did_become_readable.is_error()) {
-        dbgln("ConnectionBase::wait_for_socket_to_become_readable: {}", maybe_did_become_readable.error());
-        warnln("ConnectionBase::wait_for_socket_to_become_readable: {}", maybe_did_become_readable.error());
-        VERIFY_NOT_REACHED();
-    }
-
-    VERIFY(maybe_did_become_readable.value());
+    m_transport.wait_until_readable();
 }
 
-ErrorOr<Vector<u8>> ConnectionBase::read_as_much_as_possible_from_socket_without_blocking()
+ErrorOr<Vector<u8>> ConnectionBase::read_as_much_as_possible_from_transport_without_blocking()
 {
     Vector<u8> bytes;
 
@@ -108,9 +135,6 @@ ErrorOr<Vector<u8>> ConnectionBase::read_as_much_as_possible_from_socket_without
         bytes.append(m_unprocessed_bytes.data(), m_unprocessed_bytes.size());
         m_unprocessed_bytes.clear();
     }
-
-    u8 buffer[4096];
-    Vector<int> received_fds;
 
     bool should_shut_down = false;
     auto schedule_shutdown = [this, &should_shut_down]() {
@@ -120,34 +144,11 @@ ErrorOr<Vector<u8>> ConnectionBase::read_as_much_as_possible_from_socket_without
         });
     };
 
-    while (m_socket->is_open()) {
-        auto maybe_bytes_read = m_socket->receive_message({ buffer, 4096 }, MSG_DONTWAIT, received_fds);
-        if (maybe_bytes_read.is_error()) {
-            auto error = maybe_bytes_read.release_error();
-            if (error.is_syscall() && error.code() == EAGAIN) {
-                break;
-            }
+    auto&& [new_bytes, received_fds] = m_transport.read_as_much_as_possible_without_blocking(move(schedule_shutdown));
+    bytes.append(new_bytes.data(), new_bytes.size());
 
-            if (error.is_syscall() && error.code() == ECONNRESET) {
-                schedule_shutdown();
-                break;
-            }
-
-            dbgln("ConnectionBase::read_as_much_as_possible_from_socket_without_blocking: {}", error);
-            warnln("ConnectionBase::read_as_much_as_possible_from_socket_without_blocking: {}", error);
-            VERIFY_NOT_REACHED();
-        }
-
-        auto bytes_read = maybe_bytes_read.release_value();
-        if (bytes_read.is_empty()) {
-            schedule_shutdown();
-            break;
-        }
-
-        bytes.append(bytes_read.data(), bytes_read.size());
-        for (auto const& fd : received_fds)
-            m_unprocessed_fds.enqueue(IPC::File::adopt_fd(fd));
-    }
+    for (auto const& fd : received_fds)
+        m_unprocessed_fds.enqueue(IPC::File::adopt_fd(fd));
 
     if (!bytes.is_empty()) {
         m_responsiveness_timer->stop();
@@ -161,7 +162,7 @@ ErrorOr<Vector<u8>> ConnectionBase::read_as_much_as_possible_from_socket_without
 
 ErrorOr<void> ConnectionBase::drain_messages_from_peer()
 {
-    auto bytes = TRY(read_as_much_as_possible_from_socket_without_blocking());
+    auto bytes = TRY(read_as_much_as_possible_from_transport_without_blocking());
 
     size_t index = 0;
     try_parse_messages(bytes, index);
@@ -199,10 +200,10 @@ OwnPtr<IPC::Message> ConnectionBase::wait_for_specific_endpoint_message_impl(u32
                 return m_unprocessed_messages.take(i);
         }
 
-        if (!m_socket->is_open())
+        if (!is_open())
             break;
 
-        wait_for_socket_to_become_readable();
+        wait_for_transport_to_become_readable();
         if (drain_messages_from_peer().is_error())
             break;
     }

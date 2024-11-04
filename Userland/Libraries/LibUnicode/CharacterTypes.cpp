@@ -108,14 +108,44 @@ bool code_point_has_general_category(u32 code_point, GeneralCategory general_cat
     return u_charType(icu_code_point) == icu_general_category;
 }
 
+bool code_point_is_printable(u32 code_point)
+{
+    return static_cast<bool>(u_isprint(static_cast<UChar32>(code_point)));
+}
+
 bool code_point_has_control_general_category(u32 code_point)
 {
     return code_point_has_general_category(code_point, U_CONTROL_CHAR);
 }
 
+bool code_point_has_letter_general_category(u32 code_point)
+{
+    return code_point_has_general_category(code_point, GENERAL_CATEGORY_LETTER);
+}
+
+bool code_point_has_number_general_category(u32 code_point)
+{
+    return code_point_has_general_category(code_point, GENERAL_CATEGORY_NUMBER);
+}
+
+bool code_point_has_punctuation_general_category(u32 code_point)
+{
+    return code_point_has_general_category(code_point, GENERAL_CATEGORY_PUNCTUATION);
+}
+
+bool code_point_has_separator_general_category(u32 code_point)
+{
+    return code_point_has_general_category(code_point, GENERAL_CATEGORY_SEPARATOR);
+}
+
 bool code_point_has_space_separator_general_category(u32 code_point)
 {
     return code_point_has_general_category(code_point, U_SPACE_SEPARATOR);
+}
+
+bool code_point_has_symbol_general_category(u32 code_point)
+{
+    return code_point_has_general_category(code_point, GENERAL_CATEGORY_SYMBOL);
 }
 
 static constexpr Property PROPERTY_ANY = UCHAR_BINARY_LIMIT + 1;
@@ -199,6 +229,11 @@ bool code_point_has_regional_indicator_property(u32 code_point)
 bool code_point_has_variation_selector_property(u32 code_point)
 {
     return code_point_has_property(code_point, UCHAR_VARIATION_SELECTOR);
+}
+
+bool code_point_has_white_space_property(u32 code_point)
+{
+    return code_point_has_property(code_point, UCHAR_WHITE_SPACE);
 }
 
 // https://tc39.es/ecma262/#table-binary-unicode-properties

@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2019-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2019-2022, Andreas Kling <andreas@ladybird.org>
+ * Copyright (c) 2022-2024, Sam Atkins <sam@ladybird.org>
  * Copyright (c) 2024, Tim Ledbetter <timledbetter@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -7,11 +8,13 @@
 
 #include <LibWeb/Bindings/CSSStyleSheetPrototype.h>
 #include <LibWeb/Bindings/Intrinsics.h>
+#include <LibWeb/CSS/CSSImportRule.h>
 #include <LibWeb/CSS/CSSStyleSheet.h>
 #include <LibWeb/CSS/Parser/Parser.h>
 #include <LibWeb/CSS/StyleComputer.h>
 #include <LibWeb/CSS/StyleSheetList.h>
 #include <LibWeb/DOM/Document.h>
+#include <LibWeb/HTML/Scripting/TemporaryExecutionContext.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/Platform/EventLoopPlugin.h>
 #include <LibWeb/WebIDL/ExceptionOr.h>
@@ -31,8 +34,8 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<CSSStyleSheet>> CSSStyleSheet::construct_im
     // 1. Construct a new CSSStyleSheet object sheet.
     auto sheet = create(realm, CSSRuleList::create_empty(realm), CSS::MediaList::create(realm, {}), {});
 
-    // 2. Set sheet’s location to the base URL of the associated Document for the current global object.
-    auto associated_document = sheet->global_object().document();
+    // 2. Set sheet’s location to the base URL of the associated Document for the current principal global object.
+    auto associated_document = verify_cast<HTML::Window>(HTML::current_principal_global_object()).document();
     sheet->set_location(MUST(associated_document->base_url().to_string()));
 
     // 3. Set sheet’s stylesheet base URL to the baseURL attribute value from options.
@@ -44,7 +47,7 @@ WebIDL::ExceptionOr<JS::NonnullGCPtr<CSSStyleSheet>> CSSStyleSheet::construct_im
         // AD-HOC: This isn't explicitly mentioned in the specification, but multiple modern browsers do this.
         URL::URL url = sheet->location().has_value() ? sheet_location_url->complete_url(options->base_url.value()) : options->base_url.value();
         if (!url.is_valid())
-            return WebIDL::NotAllowedError::create(realm, "Constructed style sheets must have a valid base URL"_fly_string);
+            return WebIDL::NotAllowedError::create(realm, "Constructed style sheets must have a valid base URL"_string);
 
         sheet->set_base_url(url);
     }
@@ -101,10 +104,10 @@ CSSStyleSheet::CSSStyleSheet(JS::Realm& realm, CSSRuleList& rules, MediaList& me
     for (auto& rule : *m_rules)
         rule->set_parent_style_sheet(this);
 
-    recalculate_namespaces();
+    recalculate_rule_caches();
 
     m_rules->on_change = [this]() {
-        recalculate_namespaces();
+        recalculate_rule_caches();
     };
 }
 
@@ -123,6 +126,7 @@ void CSSStyleSheet::visit_edges(Cell::Visitor& visitor)
     visitor.visit(m_default_namespace_rule);
     visitor.visit(m_constructor_document);
     visitor.visit(m_namespace_rules);
+    visitor.visit(m_import_rules);
 }
 
 // https://www.w3.org/TR/cssom/#dom-cssstylesheet-insertrule
@@ -132,7 +136,7 @@ WebIDL::ExceptionOr<unsigned> CSSStyleSheet::insert_rule(StringView rule, unsign
 
     // If the disallow modification flag is set, throw a NotAllowedError DOMException.
     if (disallow_modification())
-        return WebIDL::NotAllowedError::create(realm(), "Can't call insert_rule() on non-modifiable stylesheets."_fly_string);
+        return WebIDL::NotAllowedError::create(realm(), "Can't call insert_rule() on non-modifiable stylesheets."_string);
 
     // 3. Let parsed rule be the return value of invoking parse a rule with rule.
     auto context = m_style_sheet_list ? CSS::Parser::ParsingContext { m_style_sheet_list->document() } : CSS::Parser::ParsingContext { realm() };
@@ -140,11 +144,11 @@ WebIDL::ExceptionOr<unsigned> CSSStyleSheet::insert_rule(StringView rule, unsign
 
     // 4. If parsed rule is a syntax error, return parsed rule.
     if (!parsed_rule)
-        return WebIDL::SyntaxError::create(realm(), "Unable to parse CSS rule."_fly_string);
+        return WebIDL::SyntaxError::create(realm(), "Unable to parse CSS rule."_string);
 
     // 5. If parsed rule is an @import rule, and the constructed flag is set, throw a SyntaxError DOMException.
     if (constructed() && parsed_rule->type() == CSSRule::Type::Import)
-        return WebIDL::SyntaxError::create(realm(), "Can't insert @import rules into a constructed stylesheet."_fly_string);
+        return WebIDL::SyntaxError::create(realm(), "Can't insert @import rules into a constructed stylesheet."_string);
 
     // 6. Return the result of invoking insert a CSS rule rule in the CSS rules at index.
     auto result = m_rules->insert_a_css_rule(parsed_rule, index);
@@ -155,7 +159,7 @@ WebIDL::ExceptionOr<unsigned> CSSStyleSheet::insert_rule(StringView rule, unsign
 
         if (m_style_sheet_list) {
             m_style_sheet_list->document().style_computer().invalidate_rule_cache();
-            m_style_sheet_list->document().invalidate_style();
+            m_style_sheet_list->document_or_shadow_root().invalidate_style(DOM::StyleInvalidationReason::StyleSheetInsertRule);
         }
     }
 
@@ -169,33 +173,35 @@ WebIDL::ExceptionOr<void> CSSStyleSheet::delete_rule(unsigned index)
 
     // 2. If the disallow modification flag is set, throw a NotAllowedError DOMException.
     if (disallow_modification())
-        return WebIDL::NotAllowedError::create(realm(), "Can't call delete_rule() on non-modifiable stylesheets."_fly_string);
+        return WebIDL::NotAllowedError::create(realm(), "Can't call delete_rule() on non-modifiable stylesheets."_string);
 
     // 3. Remove a CSS rule in the CSS rules at index.
     auto result = m_rules->remove_a_css_rule(index);
     if (!result.is_exception()) {
         if (m_style_sheet_list) {
             m_style_sheet_list->document().style_computer().invalidate_rule_cache();
-            m_style_sheet_list->document().invalidate_style();
+            m_style_sheet_list->document_or_shadow_root().invalidate_style(DOM::StyleInvalidationReason::StyleSheetDeleteRule);
         }
     }
     return result;
 }
 
 // https://drafts.csswg.org/cssom/#dom-cssstylesheet-replace
-JS::NonnullGCPtr<JS::Promise> CSSStyleSheet::replace(String text)
+JS::NonnullGCPtr<WebIDL::Promise> CSSStyleSheet::replace(String text)
 {
+    auto& realm = this->realm();
+
     // 1. Let promise be a promise
-    auto promise = JS::Promise::create(realm());
+    auto promise = WebIDL::create_promise(realm);
 
     // 2. If the constructed flag is not set, or the disallow modification flag is set, reject promise with a NotAllowedError DOMException and return promise.
     if (!constructed()) {
-        promise->reject(WebIDL::NotAllowedError::create(realm(), "Can't call replace() on non-constructed stylesheets"_fly_string));
+        WebIDL::reject_promise(realm, promise, WebIDL::NotAllowedError::create(realm, "Can't call replace() on non-constructed stylesheets"_string));
         return promise;
     }
 
     if (disallow_modification()) {
-        promise->reject(WebIDL::NotAllowedError::create(realm(), "Can't call replace() on non-modifiable stylesheets"_fly_string));
+        WebIDL::reject_promise(realm, promise, WebIDL::NotAllowedError::create(realm, "Can't call replace() on non-modifiable stylesheets"_string));
         return promise;
     }
 
@@ -203,14 +209,16 @@ JS::NonnullGCPtr<JS::Promise> CSSStyleSheet::replace(String text)
     set_disallow_modification(true);
 
     // 4. In parallel, do these steps:
-    Platform::EventLoopPlugin::the().deferred_invoke([this, text = move(text), promise] {
+    Platform::EventLoopPlugin::the().deferred_invoke(JS::create_heap_function(realm.heap(), [&realm, this, text = move(text), promise = JS::Handle(promise)] {
+        HTML::TemporaryExecutionContext execution_context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
+
         // 1. Let rules be the result of running parse a stylesheet’s contents from text.
-        auto context = m_style_sheet_list ? CSS::Parser::ParsingContext { m_style_sheet_list->document() } : CSS::Parser::ParsingContext { realm() };
+        auto context = m_style_sheet_list ? CSS::Parser::ParsingContext { m_style_sheet_list->document() } : CSS::Parser::ParsingContext { realm };
         auto* parsed_stylesheet = parse_css_stylesheet(context, text);
         auto& rules = parsed_stylesheet->rules();
 
         // 2. If rules contains one or more @import rules, remove those rules from rules.
-        JS::MarkedVector<JS::NonnullGCPtr<CSSRule>> rules_without_import(realm().heap());
+        JS::MarkedVector<JS::NonnullGCPtr<CSSRule>> rules_without_import(realm.heap());
         for (auto rule : rules) {
             if (rule->type() != CSSRule::Type::Import)
                 rules_without_import.append(rule);
@@ -223,8 +231,8 @@ JS::NonnullGCPtr<JS::Promise> CSSStyleSheet::replace(String text)
         set_disallow_modification(false);
 
         // 5. Resolve promise with sheet.
-        promise->fulfill(this);
-    });
+        WebIDL::resolve_promise(realm, *promise, this);
+    }));
 
     return promise;
 }
@@ -234,9 +242,9 @@ WebIDL::ExceptionOr<void> CSSStyleSheet::replace_sync(StringView text)
 {
     // 1. If the constructed flag is not set, or the disallow modification flag is set, throw a NotAllowedError DOMException.
     if (!constructed())
-        return WebIDL::NotAllowedError::create(realm(), "Can't call replaceSync() on non-constructed stylesheets"_fly_string);
+        return WebIDL::NotAllowedError::create(realm(), "Can't call replaceSync() on non-constructed stylesheets"_string);
     if (disallow_modification())
-        return WebIDL::NotAllowedError::create(realm(), "Can't call replaceSync() on non-modifiable stylesheets"_fly_string);
+        return WebIDL::NotAllowedError::create(realm(), "Can't call replaceSync() on non-modifiable stylesheets"_string);
 
     // 2. Let rules be the result of running parse a stylesheet’s contents from text.
     auto context = m_style_sheet_list ? CSS::Parser::ParsingContext { m_style_sheet_list->document() } : CSS::Parser::ParsingContext { realm() };
@@ -291,17 +299,26 @@ WebIDL::ExceptionOr<void> CSSStyleSheet::remove_rule(Optional<WebIDL::UnsignedLo
     return delete_rule(index.value_or(0));
 }
 
-void CSSStyleSheet::for_each_effective_style_rule(Function<void(CSSStyleRule const&)> const& callback) const
+void CSSStyleSheet::for_each_effective_rule(TraversalOrder order, Function<void(Web::CSS::CSSRule const&)> const& callback) const
 {
-    if (m_media->matches()) {
-        m_rules->for_each_effective_style_rule(callback);
-    }
+    if (m_media->matches())
+        m_rules->for_each_effective_rule(order, callback);
+}
+
+void CSSStyleSheet::for_each_effective_style_producing_rule(Function<void(CSSRule const&)> const& callback) const
+{
+    for_each_effective_rule(TraversalOrder::Preorder, [&](CSSRule const& rule) {
+        if (rule.type() == CSSRule::Type::Style || rule.type() == CSSRule::Type::NestedDeclarations)
+            callback(rule);
+    });
 }
 
 void CSSStyleSheet::for_each_effective_keyframes_at_rule(Function<void(CSSKeyframesRule const&)> const& callback) const
 {
-    if (m_media->matches())
-        m_rules->for_each_effective_keyframes_at_rule(callback);
+    for_each_effective_rule(TraversalOrder::Preorder, [&](CSSRule const& rule) {
+        if (rule.type() == CSSRule::Type::Keyframes)
+            callback(static_cast<CSSKeyframesRule const&>(rule));
+    });
 }
 
 bool CSSStyleSheet::evaluate_media_queries(HTML::Window const& window)
@@ -340,35 +357,63 @@ Optional<FlyString> CSSStyleSheet::namespace_uri(StringView namespace_prefix) co
         });
 }
 
-void CSSStyleSheet::recalculate_namespaces()
+void CSSStyleSheet::recalculate_rule_caches()
 {
     m_default_namespace_rule = nullptr;
     m_namespace_rules.clear();
+    m_import_rules.clear();
 
-    for (JS::NonnullGCPtr<CSSRule> rule : *m_rules) {
+    for (auto const& rule : *m_rules) {
+        // "Any @import rules must precede all other valid at-rules and style rules in a style sheet
+        // (ignoring @charset and @layer statement rules) and must not have any other valid at-rules
+        // or style rules between it and previous @import rules, or else the @import rule is invalid."
+        // https://drafts.csswg.org/css-cascade-5/#at-import
+        //
         // "Any @namespace rules must follow all @charset and @import rules and precede all other
         // non-ignored at-rules and style rules in a style sheet.
         // ...
         // A syntactically invalid @namespace rule (whether malformed or misplaced) must be ignored."
         // https://drafts.csswg.org/css-namespaces/#syntax
         switch (rule->type()) {
-        case CSSRule::Type::Import:
-            continue;
-
-        case CSSRule::Type::Namespace:
+        case CSSRule::Type::Import: {
+            // @import rules must appear before @namespace rules, so skip this if we've seen @namespace.
+            if (!m_namespace_rules.is_empty())
+                continue;
+            m_import_rules.append(verify_cast<CSSImportRule>(*rule));
             break;
+        }
+        case CSSRule::Type::Namespace: {
+            auto& namespace_rule = verify_cast<CSSNamespaceRule>(*rule);
+            if (!namespace_rule.namespace_uri().is_empty() && namespace_rule.prefix().is_empty())
+                m_default_namespace_rule = namespace_rule;
 
+            m_namespace_rules.set(namespace_rule.prefix(), namespace_rule);
+            break;
+        }
         default:
             // Any other types mean that further @namespace rules are invalid, so we can stop here.
             return;
         }
-
-        auto& namespace_rule = verify_cast<CSSNamespaceRule>(*rule);
-        if (!namespace_rule.namespace_uri().is_empty() && namespace_rule.prefix().is_empty())
-            m_default_namespace_rule = namespace_rule;
-
-        m_namespace_rules.set(namespace_rule.prefix(), namespace_rule);
     }
+}
+
+void CSSStyleSheet::set_source_text(String source)
+{
+    m_source_text = move(source);
+}
+
+Optional<String> CSSStyleSheet::source_text(Badge<DOM::Document>) const
+{
+    return m_source_text;
+}
+
+bool CSSStyleSheet::has_associated_font_loader(FontLoader& font_loader) const
+{
+    for (auto& loader : m_associated_font_loaders) {
+        if (loader.ptr() == &font_loader)
+            return true;
+    }
+    return false;
 }
 
 }

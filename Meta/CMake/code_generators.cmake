@@ -2,7 +2,7 @@
 # Functions for generating sources using host tools
 #
 
-function(embed_as_string_view name source_file output source_variable_name)
+function(embed_as_string name source_file output source_variable_name)
     cmake_parse_arguments(PARSE_ARGV 4 EMBED_STRING_VIEW "" "NAMESPACE" "")
     set(namespace_arg "")
     if (EMBED_STRING_VIEW_NAMESPACE)
@@ -11,11 +11,11 @@ function(embed_as_string_view name source_file output source_variable_name)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_custom_command(
         OUTPUT "${output}"
-        COMMAND "${Python3_EXECUTABLE}" "${SerenityOS_SOURCE_DIR}/Meta/embed_as_string_view.py" "${source_file}" -o "${output}.tmp" -n "${source_variable_name}" ${namespace_arg}
+        COMMAND "${Python3_EXECUTABLE}" "${SerenityOS_SOURCE_DIR}/Meta/embed_as_string.py" "${source_file}" -o "${output}.tmp" -n "${source_variable_name}" ${namespace_arg}
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${output}.tmp" "${output}"
         COMMAND "${CMAKE_COMMAND}" -E remove "${output}.tmp"
         VERBATIM
-        DEPENDS "${SerenityOS_SOURCE_DIR}/Meta/embed_as_string_view.py"
+        DEPENDS "${SerenityOS_SOURCE_DIR}/Meta/embed_as_string.py"
         MAIN_DEPENDENCY "${source_file}"
     )
 
@@ -29,14 +29,22 @@ function(generate_clang_module_map target_name)
         set(MODULE_MAP_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
 
+    string(REPLACE "Lib" "" module_name ${target_name})
+    set(module_name "${module_name}Cxx")
+
     set(module_map_file "${CMAKE_CURRENT_BINARY_DIR}/module/module.modulemap")
-    set(vfs_overlay_file "${CMAKE_CURRENT_BINARY_DIR}/vfs_overlay.yaml")
+    set(vfs_overlay_file "${VFS_OVERLAY_DIRECTORY}/${target_name}_vfs_overlay.yaml")
 
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     # FIXME: Make this depend on the public headers of the target
     add_custom_command(
         OUTPUT "${module_map_file}"
-        COMMAND "${Python3_EXECUTABLE}" "${SerenityOS_SOURCE_DIR}/Meta/generate_clang_module_map.py" "${MODULE_MAP_DIRECTORY}" --module-map "${module_map_file}" --vfs-map ${vfs_overlay_file} ${MODULE_MAP_GENERATED_FILES}
+        COMMAND "${Python3_EXECUTABLE}" "${SerenityOS_SOURCE_DIR}/Meta/generate_clang_module_map.py"
+                "${MODULE_MAP_DIRECTORY}"
+                --module-name "${module_name}"
+                --module-map "${module_map_file}"
+                --vfs-map ${vfs_overlay_file}
+                ${MODULE_MAP_GENERATED_FILES}
         VERBATIM
         DEPENDS "${SerenityOS_SOURCE_DIR}/Meta/generate_clang_module_map.py"
     )
@@ -70,4 +78,3 @@ function(compile_ipc source output)
         install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${output} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${current_source_dir_relative}" OPTIONAL)
     endif()
 endfunction()
-

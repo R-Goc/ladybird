@@ -47,15 +47,24 @@ class CookieJar {
 
         size_t size() const { return m_cookies.size(); }
 
-        UnixDateTime purge_expired_cookies();
+        UnixDateTime purge_expired_cookies(Optional<AK::Duration> offset = {});
 
         auto take_dirty_cookies() { return move(m_dirty_cookies); }
 
         template<typename Callback>
         void for_each_cookie(Callback callback)
         {
-            for (auto& it : m_cookies)
-                callback(it.value);
+            using ReturnType = InvokeResult<Callback, Web::Cookie::Cookie&>;
+
+            for (auto& it : m_cookies) {
+                if constexpr (IsSame<ReturnType, IterationDecision>) {
+                    if (callback(it.value) == IterationDecision::Break)
+                        return;
+                } else {
+                    static_assert(IsSame<ReturnType, void>);
+                    callback(it.value);
+                }
+            }
         }
 
     private:
@@ -85,6 +94,7 @@ public:
     Vector<Web::Cookie::Cookie> get_all_cookies();
     Vector<Web::Cookie::Cookie> get_all_cookies(URL::URL const& url);
     Optional<Web::Cookie::Cookie> get_named_cookie(URL::URL const& url, StringView name);
+    void expire_cookies_with_time_offset(AK::Duration);
 
 private:
     explicit CookieJar(Optional<PersistedStorage>);
@@ -93,9 +103,7 @@ private:
     AK_MAKE_NONMOVABLE(CookieJar);
 
     static Optional<String> canonicalize_domain(const URL::URL& url);
-    static bool domain_matches(StringView string, StringView domain_string);
     static bool path_matches(StringView request_path, StringView cookie_path);
-    static String default_path(const URL::URL& url);
 
     enum class MatchingCookiesSpecMode {
         RFC6265,

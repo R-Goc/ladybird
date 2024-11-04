@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2022, Linus Groh <linusg@serenityos.org>
  * Copyright (c) 2023, Sam Atkins <atkinssj@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibURL/Origin.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Event.h>
@@ -17,7 +18,6 @@
 #include <LibWeb/HTML/Navigable.h>
 #include <LibWeb/HTML/NavigableContainer.h>
 #include <LibWeb/HTML/NavigationParams.h>
-#include <LibWeb/HTML/Origin.h>
 #include <LibWeb/HTML/Scripting/WindowEnvironmentSettingsObject.h>
 #include <LibWeb/HTML/TraversableNavigable.h>
 #include <LibWeb/HTML/Window.h>
@@ -59,7 +59,7 @@ JS::GCPtr<NavigableContainer> NavigableContainer::navigable_container_with_conte
 }
 
 // https://html.spec.whatwg.org/multipage/document-sequences.html#create-a-new-child-navigable
-WebIDL::ExceptionOr<void> NavigableContainer::create_new_child_navigable(JS::SafeFunction<void()> afterSessionHistoryUpdate)
+WebIDL::ExceptionOr<void> NavigableContainer::create_new_child_navigable(JS::GCPtr<JS::HeapFunction<void()>> after_session_history_update)
 {
     // 1. Let parentNavigable be element's node navigable.
     auto parent_navigable = navigable();
@@ -110,7 +110,7 @@ WebIDL::ExceptionOr<void> NavigableContainer::create_new_child_navigable(JS::Saf
     auto traversable = parent_navigable->traversable_navigable();
 
     // 12. Append the following session history traversal steps to traversable:
-    traversable->append_session_history_traversal_steps([traversable, navigable, parent_navigable, history_entry, afterSessionHistoryUpdate = move(afterSessionHistoryUpdate)] {
+    traversable->append_session_history_traversal_steps(JS::create_heap_function(heap(), [traversable, navigable, parent_navigable, history_entry, after_session_history_update] {
         // 1. Let parentDocState be parentNavigable's active session history entry's document state.
         auto parent_doc_state = parent_navigable->active_session_history_entry()->document_state();
 
@@ -137,10 +137,10 @@ WebIDL::ExceptionOr<void> NavigableContainer::create_new_child_navigable(JS::Saf
         // 7. Update for navigable creation/destruction given traversable
         traversable->update_for_navigable_creation_or_destruction();
 
-        if (afterSessionHistoryUpdate) {
-            afterSessionHistoryUpdate();
+        if (after_session_history_update) {
+            after_session_history_update->function()();
         }
-    });
+    }));
 
     return {};
 }
@@ -194,6 +194,11 @@ HTML::WindowProxy* NavigableContainer::content_window()
 // https://html.spec.whatwg.org/multipage/iframe-embed-object.html#shared-attribute-processing-steps-for-iframe-and-frame-elements
 Optional<URL::URL> NavigableContainer::shared_attribute_processing_steps_for_iframe_and_frame(bool initial_insertion)
 {
+    // AD-HOC: If the element was added and immediately removed, the content navigable will be null. Don't process the
+    //         src attribute any further.
+    if (!m_content_navigable)
+        return {};
+
     // 1. Let url be the URL record about:blank.
     auto url = URL::URL("about:blank");
 
@@ -209,12 +214,10 @@ Optional<URL::URL> NavigableContainer::shared_attribute_processing_steps_for_ifr
 
     // 3. If the inclusive ancestor navigables of element's node navigable contains a navigable
     //    whose active document's URL equals url with exclude fragments set to true, then return null.
-    if (m_content_navigable) {
-        for (auto const& navigable : document().inclusive_ancestor_navigables()) {
-            VERIFY(navigable->active_document());
-            if (navigable->active_document()->url().equals(url, URL::ExcludeFragment::Yes))
-                return {};
-        }
+    for (auto const& navigable : document().inclusive_ancestor_navigables()) {
+        VERIFY(navigable->active_document());
+        if (navigable->active_document()->url().equals(url, URL::ExcludeFragment::Yes))
+            return {};
     }
 
     // 4. If url matches about:blank and initialInsertion is true, then perform the URL and history update steps given element's content navigable's active document and url.
@@ -294,10 +297,10 @@ void NavigableContainer::destroy_the_child_navigable()
         auto traversable = this->navigable()->traversable_navigable();
 
         // 9. Append the following session history traversal steps to traversable:
-        traversable->append_session_history_traversal_steps([traversable] {
+        traversable->append_session_history_traversal_steps(JS::create_heap_function(heap(), [traversable] {
             // 1. Update for navigable creation/destruction given traversable.
             traversable->update_for_navigable_creation_or_destruction();
-        });
+        }));
     }));
 }
 

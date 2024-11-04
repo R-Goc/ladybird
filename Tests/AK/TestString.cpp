@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Tim Flynn <trflynn89@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -1289,6 +1289,82 @@ TEST_CASE(trim)
     }
 }
 
+TEST_CASE(trim_whitespace)
+{
+    {
+        String string {};
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), String {});
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), String {});
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), String {});
+    }
+    {
+        auto string = " "_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), String {});
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), String {});
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), String {});
+    }
+    {
+        auto string = "   "_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), String {});
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), String {});
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), String {});
+    }
+    {
+        auto string = " \t \n \r \u00A0 \u202F "_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), String {});
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), String {});
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), String {});
+    }
+    {
+        auto string = "abcdef"_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), "abcdef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), "abcdef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), "abcdef"_string);
+    }
+    {
+        auto string = " \u00A0 abcdef"_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), "abcdef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), "abcdef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), " \u00A0 abcdef"_string);
+    }
+    {
+        auto string = "abcdef \u202F "_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), "abcdef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), "abcdef \u202F "_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), "abcdef"_string);
+    }
+    {
+        auto string = " \u00A0 abcdef \u202F "_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), "abcdef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), "abcdef \u202F "_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), " \u00A0 abcdef"_string);
+    }
+    {
+        auto string = "ab \t cd \n ef"_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), "ab \t cd \n ef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), "ab \t cd \n ef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), "ab \t cd \n ef"_string);
+    }
+    {
+        auto string = " \u00A0 ab \t cd \n ef"_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), "ab \t cd \n ef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), "ab \t cd \n ef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), " \u00A0 ab \t cd \n ef"_string);
+    }
+    {
+        auto string = "ab \t cd \n ef \u202F "_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), "ab \t cd \n ef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), "ab \t cd \n ef \u202F "_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), "ab \t cd \n ef"_string);
+    }
+    {
+        auto string = " \u00A0 ab \t cd \n ef \u202F "_string;
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Both)), "ab \t cd \n ef"_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Left)), "ab \t cd \n ef \u202F "_string);
+        EXPECT_EQ(MUST(string.trim_whitespace(TrimMode::Right)), " \u00A0 ab \t cd \n ef"_string);
+    }
+}
+
 TEST_CASE(contains)
 {
     EXPECT(!String {}.contains({}));
@@ -1415,4 +1491,28 @@ TEST_CASE(ends_with)
 
     EXPECT(emoji.ends_with(0x1F643));
     EXPECT(!emoji.ends_with(0x1F600));
+}
+
+TEST_CASE(to_ascii_lowercase)
+{
+    EXPECT_EQ("foobar"_string.to_ascii_lowercase(), "foobar"_string);
+    EXPECT_EQ("FooBar"_string.to_ascii_lowercase(), "foobar"_string);
+    EXPECT_EQ("FOOBAR"_string.to_ascii_lowercase(), "foobar"_string);
+
+    // NOTE: We expect to_ascii_lowercase() to return the same underlying string if no changes are needed.
+    auto long_string = "this is a long string that cannot use the short string optimization"_string;
+    auto lowercased = long_string.to_ascii_lowercase();
+    EXPECT_EQ(long_string.bytes().data(), lowercased.bytes().data());
+}
+
+TEST_CASE(to_ascii_uppercase)
+{
+    EXPECT_EQ("foobar"_string.to_ascii_uppercase(), "FOOBAR"_string);
+    EXPECT_EQ("FooBar"_string.to_ascii_uppercase(), "FOOBAR"_string);
+    EXPECT_EQ("FOOBAR"_string.to_ascii_uppercase(), "FOOBAR"_string);
+
+    // NOTE: We expect to_ascii_uppercase() to return the same underlying string if no changes are needed.
+    auto long_string = "THIS IS A LONG STRING THAT CANNOT USE THE SHORT STRING OPTIMIZATION"_string;
+    auto uppercased = long_string.to_ascii_uppercase();
+    EXPECT_EQ(long_string.bytes().data(), uppercased.bytes().data());
 }

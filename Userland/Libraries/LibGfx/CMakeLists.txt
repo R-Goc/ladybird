@@ -4,20 +4,18 @@ set(SOURCES
     AffineTransform.cpp
     AntiAliasingPainter.cpp
     Bitmap.cpp
+    BitmapSequence.cpp
     CMYKBitmap.cpp
     Color.cpp
     DeltaE.cpp
+    DeprecatedPainter.cpp
+    DeprecatedPath.cpp
     EdgeFlagPathRasterizer.cpp
     FontCascadeList.cpp
-    Font/Emoji.cpp
     Font/Font.cpp
     Font/FontData.cpp
     Font/FontDatabase.cpp
-    Font/OpenType/Cmap.cpp
-    Font/OpenType/Glyf.cpp
-    Font/OpenType/Hinting/Opcodes.cpp
-    Font/OpenType/Tables.cpp
-    Font/OpenType/Typeface.cpp
+    Font/PathFontProvider.cpp
     Font/ScaledFont.cpp
     Font/ScaledFontSkia.cpp
     Font/Typeface.cpp
@@ -54,10 +52,11 @@ set(SOURCES
     ImageFormats/AVIFLoader.cpp
     ImmutableBitmap.cpp
     MedianCut.cpp
-    Painter.cpp
     Palette.cpp
     Path.cpp
-    PathClipper.cpp
+    PathSkia.cpp
+    Painter.cpp
+    PainterSkia.cpp
     Point.cpp
     Rect.cpp
     ShareableBitmap.cpp
@@ -70,7 +69,7 @@ set(SOURCES
 
 serenity_lib(LibGfx gfx)
 
-target_link_libraries(LibGfx PRIVATE LibCompress LibCore LibCrypto LibFileSystem LibRIFF LibTextCodec LibIPC LibUnicode LibURL ${SKIA_LIBRARIES})
+target_link_libraries(LibGfx PRIVATE LibCompress LibCore LibCrypto LibFileSystem LibRIFF LibTextCodec LibIPC LibUnicode LibURL)
 
 set(generated_sources TIFFMetadata.h TIFFTagHandler.cpp)
 list(TRANSFORM generated_sources PREPEND "ImageFormats/")
@@ -105,37 +104,25 @@ find_package(JPEG REQUIRED)
 find_package(PNG REQUIRED)
 find_package(LIBAVIF REQUIRED)
 find_package(WebP REQUIRED)
-pkg_check_modules(Jxl REQUIRED IMPORTED_TARGET libjxl)
+find_package(harfbuzz REQUIRED)
 
-target_link_libraries(LibGfx PRIVATE PkgConfig::WOFF2 JPEG::JPEG PkgConfig::Jxl PNG::PNG avif WebP::webp WebP::webpdecoder
-            WebP::webpdemux WebP::libwebpmux)
+target_link_libraries(LibGfx PRIVATE PkgConfig::WOFF2 JPEG::JPEG PNG::PNG avif WebP::webp WebP::webpdecoder
+            WebP::webpdemux WebP::libwebpmux skia harfbuzz)
+
+if (NOT ANDROID)
+    pkg_check_modules(Jxl REQUIRED IMPORTED_TARGET libjxl)
+    target_link_libraries(LibGfx PRIVATE PkgConfig::Jxl)
+else()
+    find_package(libjxl REQUIRED)
+    find_package(hwy REQUIRED)
+    target_link_libraries(LibGfx PRIVATE libjxl::libjxl hwy::hwy)
+endif()
 
 if (ENABLE_SWIFT)
     generate_clang_module_map(LibGfx GENERATED_FILES ${generated_headers})
-
-    target_compile_features(LibGfx PUBLIC cxx_std_23)
-
     target_sources(LibGfx PRIVATE
         Color.swift
     )
-    target_compile_definitions(LibGfx PRIVATE LIBGFX_USE_SWIFT)
-    set_target_properties(LibGfx PROPERTIES Swift_MODULE_NAME "SwiftLibGfx")
-
-    # FIXME: These should be pulled automatically from interface compile options for the target
-    set(VFS_OVERLAY_OPTIONS
-        -Xcc -ivfsoverlay${CMAKE_CURRENT_BINARY_DIR}/vfs_overlay.yaml
-        -Xcc -ivfsoverlay${Lagom_BINARY_DIR}/AK/vfs_overlay.yaml
-    )
-    get_target_property(LIBGFX_NATIVE_DIRS LibGfx INCLUDE_DIRECTORIES)
-    _swift_generate_cxx_header(LibGfx "LibGfx-Swift.h"
-        SEARCH_PATHS ${LIBGFX_NATIVE_DIRS}
-        COMPILE_OPTIONS ${VFS_OVERLAY_OPTIONS}
-    )
-
-    # FIXME: https://gitlab.kitware.com/cmake/cmake/-/issues/26175
-    if (APPLE)
-        add_custom_command(TARGET LibGfx POST_BUILD
-            COMMAND install_name_tool -id @rpath/liblagom-gfx.0.dylib "$<TARGET_FILE:LibGfx>"
-        )
-    endif()
+    target_link_libraries(LibGfx PRIVATE AK)
+    add_swift_target_properties(LibGfx LAGOM_LIBRARIES AK)
 endif()

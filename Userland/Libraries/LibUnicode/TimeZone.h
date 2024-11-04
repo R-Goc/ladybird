@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#pragma once
+
 #include <AK/Optional.h>
 #include <AK/String.h>
 #include <AK/Time.h>
 #include <AK/Vector.h>
-
-#pragma once
 
 namespace Unicode {
 
@@ -24,6 +24,7 @@ struct TimeZoneOffset {
 };
 
 String current_time_zone();
+void clear_system_time_zone_cache();
 Vector<String> const& available_time_zones();
 Vector<String> available_time_zones_in_region(StringView region);
 Optional<String> resolve_primary_time_zone(StringView time_zone);

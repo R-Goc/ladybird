@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2024, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021-2022, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -10,11 +10,10 @@
 #include <AK/String.h>
 #include <AK/Variant.h>
 #include <LibGfx/AffineTransform.h>
-#include <LibGfx/AntiAliasingPainter.h>
 #include <LibGfx/Color.h>
 #include <LibGfx/Forward.h>
+#include <LibGfx/Painter.h>
 #include <LibGfx/Path.h>
-#include <LibGfx/PathClipper.h>
 #include <LibWeb/Bindings/PlatformObject.h>
 #include <LibWeb/HTML/Canvas/CanvasCompositing.h>
 #include <LibWeb/HTML/Canvas/CanvasDrawImage.h>
@@ -25,6 +24,7 @@
 #include <LibWeb/HTML/Canvas/CanvasPath.h>
 #include <LibWeb/HTML/Canvas/CanvasPathDrawingStyles.h>
 #include <LibWeb/HTML/Canvas/CanvasRect.h>
+#include <LibWeb/HTML/Canvas/CanvasShadowStyles.h>
 #include <LibWeb/HTML/Canvas/CanvasState.h>
 #include <LibWeb/HTML/Canvas/CanvasText.h>
 #include <LibWeb/HTML/Canvas/CanvasTextDrawingStyles.h>
@@ -42,6 +42,7 @@ class CanvasRenderingContext2D
     , public CanvasState
     , public CanvasTransform<CanvasRenderingContext2D>
     , public CanvasFillStrokeStyles<CanvasRenderingContext2D>
+    , public CanvasShadowStyles<CanvasRenderingContext2D>
     , public CanvasRect
     , public CanvasDrawPath
     , public CanvasText
@@ -76,6 +77,7 @@ public:
     virtual void fill(Path2D& path, StringView fill_rule) override;
 
     virtual WebIDL::ExceptionOr<JS::NonnullGCPtr<ImageData>> create_image_data(int width, int height, Optional<ImageDataSettings> const& settings = {}) const override;
+    virtual WebIDL::ExceptionOr<JS::NonnullGCPtr<ImageData>> create_image_data(ImageData const& image_data) const override;
     virtual WebIDL::ExceptionOr<JS::GCPtr<ImageData>> get_image_data(int x, int y, int width, int height, Optional<ImageDataSettings> const& settings = {}) const override;
     virtual void put_image_data(ImageData const&, float x, float y) override;
 
@@ -88,6 +90,9 @@ public:
     virtual void clip(StringView fill_rule) override;
     virtual void clip(Path2D& path, StringView fill_rule) override;
 
+    virtual bool is_point_in_path(double x, double y, StringView fill_rule) override;
+    virtual bool is_point_in_path(Path2D const& path, double x, double y, StringView fill_rule) override;
+
     virtual bool image_smoothing_enabled() const override;
     virtual void set_image_smoothing_enabled(bool) override;
     virtual Bindings::ImageSmoothingQuality image_smoothing_quality() const override;
@@ -96,8 +101,17 @@ public:
     virtual float global_alpha() const override;
     virtual void set_global_alpha(float) override;
 
+    virtual float shadow_offset_x() const override;
+    virtual void set_shadow_offset_x(float) override;
+    virtual float shadow_offset_y() const override;
+    virtual void set_shadow_offset_y(float) override;
+    virtual String shadow_color() const override;
+    virtual void set_shadow_color(String) override;
+
     HTMLCanvasElement& canvas_element();
     HTMLCanvasElement const& canvas_element() const;
+
+    [[nodiscard]] Gfx::Painter* painter();
 
 private:
     explicit CanvasRenderingContext2D(JS::Realm&, HTMLCanvasElement&);
@@ -105,46 +119,29 @@ private:
     virtual void initialize(JS::Realm&) override;
     virtual void visit_edges(Cell::Visitor&) override;
 
-    struct PreparedTextGlyph {
-        String glyph;
-        Gfx::IntPoint position;
-    };
+    virtual Gfx::Painter* painter_for_canvas_state() override { return painter(); }
+    virtual Gfx::Path& path_for_canvas_state() override { return path(); }
 
     struct PreparedText {
-        Vector<PreparedTextGlyph> glyphs;
+        RefPtr<Gfx::GlyphRun> glyph_run;
         Gfx::TextAlignment physical_alignment;
         Gfx::IntRect bounding_box;
     };
 
     void did_draw(Gfx::FloatRect const&);
 
-    template<typename TDrawFunction>
-    void draw_clipped(TDrawFunction draw_function)
-    {
-        auto painter = this->antialiased_painter();
-        if (!painter.has_value())
-            return;
-        Gfx::ScopedPathClip clipper(painter->underlying_painter(), drawing_state().clip);
-        auto draw_rect = draw_function(*painter);
-        if (drawing_state().clip.has_value())
-            draw_rect.intersect(drawing_state().clip->path.bounding_box());
-        did_draw(draw_rect);
-    }
-
     RefPtr<Gfx::Font const> current_font();
 
     PreparedText prepare_text(ByteString const& text, float max_width = INFINITY);
 
-    Gfx::Painter* painter();
-    Optional<Gfx::AntiAliasingPainter> antialiased_painter();
-
-    Gfx::Path rect_path(float x, float y, float width, float height);
-
-    Gfx::Path text_path(StringView text, float x, float y, Optional<double> max_width);
+    [[nodiscard]] Gfx::Path rect_path(float x, float y, float width, float height);
+    [[nodiscard]] Gfx::Path text_path(StringView text, float x, float y, Optional<double> max_width);
 
     void stroke_internal(Gfx::Path const&);
     void fill_internal(Gfx::Path const&, Gfx::WindingRule);
     void clip_internal(Gfx::Path&, Gfx::WindingRule);
+    void paint_shadow_for_fill_internal(Gfx::Path const&, Gfx::WindingRule);
+    void paint_shadow_for_stroke_internal(Gfx::Path const&);
 
     JS::NonnullGCPtr<HTMLCanvasElement> m_element;
     OwnPtr<Gfx::Painter> m_painter;

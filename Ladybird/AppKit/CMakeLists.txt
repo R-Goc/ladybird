@@ -1,7 +1,6 @@
 add_library(ladybird_impl STATIC
     ${LADYBIRD_SOURCES}
     Application/Application.mm
-    Application/ApplicationBridge.cpp
     Application/ApplicationDelegate.mm
     Application/EventLoopImplementation.mm
     UI/Event.mm
@@ -9,6 +8,7 @@ add_library(ladybird_impl STATIC
     UI/InspectorController.mm
     UI/LadybirdWebView.mm
     UI/LadybirdWebViewBridge.cpp
+    UI/LadybirdWebViewWindow.mm
     UI/Palette.mm
     UI/SearchPanel.mm
     UI/Tab.mm

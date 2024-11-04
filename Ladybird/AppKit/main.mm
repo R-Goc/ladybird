@@ -12,8 +12,6 @@
 #include <LibMain/Main.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/ChromeProcess.h>
-#include <LibWebView/CookieJar.h>
-#include <LibWebView/Database.h>
 #include <LibWebView/URL.h>
 #include <LibWebView/ViewImplementation.h>
 #include <LibWebView/WebContentClient.h>
@@ -55,7 +53,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
 
     platform_init();
 
-    auto chrome_process = TRY(WebView::ChromeProcess::create());
+    WebView::ChromeProcess chrome_process;
 
     if (auto const& chrome_options = WebView::Application::chrome_options(); chrome_options.force_new_process == WebView::ForceNewProcess::No) {
         auto disposition = TRY(chrome_process.connect(chrome_options.raw_urls, chrome_options.new_window));
@@ -84,15 +82,12 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
             view->did_allocate_iosurface_backing_stores(message.front_backing_store_id, move(message.front_backing_store_port), message.back_backing_store_id, move(message.back_backing_store_port));
     };
 
-    auto database = TRY(WebView::Database::create());
-    auto cookie_jar = TRY(WebView::CookieJar::create(*database));
-
     // FIXME: Create an abstraction to re-spawn the RequestServer and re-hook up its client hooks to each tab on crash
     TRY([application launchRequestServer]);
 
     TRY([application launchImageDecoder]);
 
-    auto* delegate = [[ApplicationDelegate alloc] initWithCookieJar:move(cookie_jar)];
+    auto* delegate = [[ApplicationDelegate alloc] init];
     [NSApp setDelegate:delegate];
 
     return WebView::Application::the().execute();

@@ -4,6 +4,8 @@ When contributing to Ladybird, make sure that the changes you wish to make are i
 
 **For your first couple of PRs, start with something small to get familiar with the project and its development processes. Please do not start by adding a large component.**
 
+Read [the Ladybird documentation](https://github.com/LadybirdBrowser/ladybird/blob/master/CONTRIBUTING.md), including the documents in the **Development** section of the `Documentation/README.md` file.
+
 Everyone is welcome to work on the project, and while we have lots of fun, it's a serious kind of fun. :^)
 
 ## Communication
@@ -63,13 +65,13 @@ Nobody is perfect, and sometimes we mess things up. That said, here are some goo
 **Do:**
 
 * Write in idiomatic project-style C++23, using the `AK` containers in all code.
-* Conform to the project coding style found in [CodingStyle.md](https://github.com/LadybirdBrowser/ladybird/blob/master/Documentation/CodingStyle.md). Use `clang-format` (version 18 or later) to automatically format C++ files. See [AdvancedBuildInstructions.md](https://github.com/LadybirdBrowser/ladybird/blob/master/Documentation/AdvancedBuildInstructions.md#clang-format-updates) for instructions on how to get an up-to-date version if your OS distribution does not ship clang-format-18.
+* Conform to the project coding style found in [CodingStyle.md](https://github.com/LadybirdBrowser/ladybird/blob/master/Documentation/CodingStyle.md). Use `clang-format` (version 18) to automatically format C++ files. See [AdvancedBuildInstructions.md](https://github.com/LadybirdBrowser/ladybird/blob/master/Documentation/AdvancedBuildInstructions.md#clang-format-updates) for instructions on how to get an up-to-date version if your OS distribution does not ship clang-format-18.
 * Choose expressive variable, function and class names. Make it as obvious as possible what the code is doing.
 * Split your changes into separate, atomic commits (i.e. A commit per feature or fix, where the build, tests and the system are all functioning).
 * Make sure your commits are rebased on the master branch.
 * Wrap your commit messages at 72 characters.
 * The first line of the commit message is the subject line, and must have the format "Category: Brief description of what's being changed". The category should be the name of a library, application, service, utility, etc.
-  * Examples: `LibAudio`, `WebContent`, `CI`, `AK`, `RequestServer`, `js`
+  * Examples: `LibMedia`, `WebContent`, `CI`, `AK`, `RequestServer`, `js`
   * Don't use a category like "`Userland`" or "`Utilities`", except for generic changes that affect a large portion of code within these directories.
   * Don't use specific component names, e.g. C++ class names, as the category either - mention them in the summary instead. E.g. `LibGUI: Brief description of what's being changed in FooWidget` rather than `FooWidget: Brief description of what's being changed`
   * Several categories may be combined with `+`, e.g. `LibJS+LibWeb+Browser: ...`
@@ -128,6 +130,40 @@ To enable these hooks firstly follow the installation instructions available at 
    ```console
    pre-commit install --hook-type commit-msg
    ```
+
+## Git Notes
+
+The GitHub project contains [git notes](https://git-scm.com/docs/git-notes) for each commit that includes e.g. a link to
+the pull request from which the commit originated and reviewer information. These are updated automatically, but require
+an additional step locally to be able to see the notes in `git log`:
+
+```bash
+git config --add remote.upstream.fetch '+refs/notes/*:refs/notes/*'
+```
+
+> [!NOTE]
+> The `upstream` remote in this command should be replaced with whatever you've named the LadybirdBrowser/ladybird.git
+> remote in your local clone. Use `git remote -v` to find that name.
+
+Now, any time you `git fetch`, the latest notes will be fetched as well. You will see information like the following when
+you run `git log`:
+
+```
+commit c1b0e180ba64d2ea7e815e2c2e93087ae9a26500
+Author: Timothy Flynn <trflynn89@pm.me>
+Date:   Mon Jul 29 10:18:25 2024 -0400
+
+    LibWebView: Insert line numbers before each line in about:srcdoc
+
+    The behavior chosen here (fixed-width counters, alignment, etc.) matches
+    Firefox.
+
+Notes:
+    Author: https://github.com/trflynn89
+    Commit: https://github.com/LadybirdBrowser/ladybird/commit/c1b0e180ba6
+    Pull-request: https://github.com/LadybirdBrowser/ladybird/pull/892
+    Reviewed-by: https://github.com/AtkinsSJ ✅
+```
 
 ## On abandoned pull requests
 

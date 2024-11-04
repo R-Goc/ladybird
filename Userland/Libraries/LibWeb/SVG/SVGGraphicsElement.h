@@ -7,8 +7,8 @@
 
 #pragma once
 
+#include <LibGfx/DeprecatedPath.h>
 #include <LibGfx/PaintStyle.h>
-#include <LibGfx/Path.h>
 #include <LibWeb/DOM/Node.h>
 #include <LibWeb/SVG/AttributeParser.h>
 #include <LibWeb/SVG/SVGAnimatedTransformList.h>
@@ -38,6 +38,9 @@ public:
     Optional<Gfx::Color> stroke_color() const;
     Optional<float> stroke_width() const;
     Optional<float> fill_opacity() const;
+    Optional<CSS::StrokeLinecap> stroke_linecap() const;
+    Optional<CSS::StrokeLinejoin> stroke_linejoin() const;
+    Optional<CSS::NumberOrCalculated> stroke_miterlimit() const;
     Optional<float> stroke_opacity() const;
     Optional<FillRule> fill_rule() const;
     Optional<ClipRule> clip_rule() const;

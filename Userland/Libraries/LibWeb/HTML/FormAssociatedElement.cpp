@@ -1,10 +1,17 @@
 /*
- * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021, Andreas Kling <andreas@ladybird.org>
+ * Copyright (c) 2024, Jelle Raaijmakers <jelle@ladybird.org>
+ * Copyright (c) 2024, Tim Ledbetter <tim.ledbetter@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibUnicode/CharacterTypes.h>
+#include <LibUnicode/Segmenter.h>
 #include <LibWeb/DOM/Document.h>
+#include <LibWeb/DOM/Event.h>
+#include <LibWeb/DOM/Position.h>
+#include <LibWeb/DOM/SelectionchangeEventDispatching.h>
 #include <LibWeb/HTML/FormAssociatedElement.h>
 #include <LibWeb/HTML/HTMLButtonElement.h>
 #include <LibWeb/HTML/HTMLFieldSetElement.h>
@@ -14,8 +21,20 @@
 #include <LibWeb/HTML/HTMLSelectElement.h>
 #include <LibWeb/HTML/HTMLTextAreaElement.h>
 #include <LibWeb/HTML/Parser/HTMLParser.h>
+#include <LibWeb/Painting/Paintable.h>
 
 namespace Web::HTML {
+
+static SelectionDirection string_to_selection_direction(Optional<String> value)
+{
+    if (!value.has_value())
+        return SelectionDirection::None;
+    if (value.value() == "forward"sv)
+        return SelectionDirection::Forward;
+    if (value.value() == "backward"sv)
+        return SelectionDirection::Backward;
+    return SelectionDirection::None;
+}
 
 void FormAssociatedElement::set_form(HTMLFormElement* form)
 {
@@ -152,61 +171,654 @@ void FormAssociatedElement::reset_form_owner()
     }
 }
 
+// https://w3c.github.io/webdriver/#dfn-clear-algorithm
+void FormAssociatedElement::clear_algorithm()
+{
+    // When the clear algorithm is invoked for an element that does not define its own clear algorithm, its reset
+    // algorithm must be invoked instead.
+    reset_algorithm();
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-fs-formaction
+String FormAssociatedElement::form_action() const
+{
+    // The formAction IDL attribute must reflect the formaction content attribute, except that on getting, when the content attribute is missing or its value is the empty string,
+    // the element's node document's URL must be returned instead.
+    auto& html_element = form_associated_element_to_html_element();
+    auto form_action_attribute = html_element.attribute(HTML::AttributeNames::formaction);
+    if (!form_action_attribute.has_value() || form_action_attribute.value().is_empty()) {
+        return html_element.document().url_string();
+    }
+
+    auto document_base_url = html_element.document().base_url();
+    return MUST(document_base_url.complete_url(form_action_attribute.value()).to_string());
+}
+
+WebIDL::ExceptionOr<void> FormAssociatedElement::set_form_action(String const& value)
+{
+    auto& html_element = form_associated_element_to_html_element();
+    return html_element.set_attribute(HTML::AttributeNames::formaction, value);
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#concept-textarea/input-relevant-value
+void FormAssociatedTextControlElement::relevant_value_was_changed()
+{
+    auto the_relevant_value = relevant_value();
+    auto relevant_value_length = the_relevant_value.code_points().length();
+
+    // 1. If the element has a selection:
+    if (m_selection_start < m_selection_end) {
+        // 1. If the start of the selection is now past the end of the relevant value, set it to
+        //    the end of the relevant value.
+        if (m_selection_start > relevant_value_length)
+            m_selection_start = relevant_value_length;
+
+        // 2. If the end of the selection is now past the end of the relevant value, set it to the
+        //    end of the relevant value.
+        if (m_selection_end > relevant_value_length)
+            m_selection_end = relevant_value_length;
+
+        // 3. If the user agent does not support empty selection, and both the start and end of the
+        //    selection are now pointing to the end of the relevant value, then instead set the
+        //    element's text entry cursor position to the end of the relevant value, removing any
+        //    selection.
+        // NOTE: We support empty selections.
+        return;
+    }
+
+    // 2. Otherwise, the element must have a text entry cursor position position. If it is now past
+    //    the end of the relevant value, set it to the end of the relevant value.
+    if (m_selection_start > relevant_value_length)
+        m_selection_start = relevant_value_length;
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-textarea/input-select
+WebIDL::ExceptionOr<void> FormAssociatedTextControlElement::select()
+{
+    // 1. If this element is an input element, and either select() does not apply to this element
+    //    or the corresponding control has no selectable text, return.
+    auto& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element)) {
+        auto& input_element = static_cast<HTMLInputElement&>(html_element);
+        if (!input_element.select_applies() || !input_element.has_selectable_text())
+            return {};
+    }
+
+    // 2. Set the selection range with 0 and infinity.
+    set_the_selection_range(0, NumericLimits<WebIDL::UnsignedLong>::max());
+    return {};
+}
+
 // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-textarea/input-selectionstart
-WebIDL::UnsignedLong FormAssociatedElement::selection_start() const
+Optional<WebIDL::UnsignedLong> FormAssociatedTextControlElement::selection_start() const
 {
     // 1. If this element is an input element, and selectionStart does not apply to this element, return null.
-    // NOTE: This is done by HTMLInputElement before calling this function
+    auto const& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element)) {
+        auto const& input_element = static_cast<HTMLInputElement const&>(html_element);
+        if (!input_element.selection_or_range_applies())
+            return {};
+    }
 
     // 2. If there is no selection, return the code unit offset within the relevant value to the character that
     //    immediately follows the text entry cursor.
-    if (auto cursor = form_associated_element_to_html_element().document().cursor_position())
-        return cursor->offset();
+    if (m_selection_start == m_selection_end) {
+        return m_selection_start;
+    }
 
-    // FIXME: 3. Return the code unit offset within the relevant value to the character that immediately follows the start of
-    //           the selection.
-    return 0;
+    // 3. Return the code unit offset within the relevant value to the character that immediately follows the start of
+    //    the selection.
+    return m_selection_start < m_selection_end ? m_selection_start : m_selection_end;
 }
 
 // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#textFieldSelection:dom-textarea/input-selectionstart-2
-WebIDL::ExceptionOr<void> FormAssociatedElement::set_selection_start(Optional<WebIDL::UnsignedLong> const&)
+WebIDL::ExceptionOr<void> FormAssociatedTextControlElement::set_selection_start(Optional<WebIDL::UnsignedLong> const& value)
 {
-    // 1. If this element is an input element, and selectionStart does not apply to this element, throw an
-    //    "InvalidStateError" DOMException.
-    // NOTE: This is done by HTMLInputElement before calling this function
+    // 1. If this element is an input element, and selectionStart does not apply to this element,
+    //    throw an "InvalidStateError" DOMException.
+    auto& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element)) {
+        auto& input_element = static_cast<HTMLInputElement&>(html_element);
+        if (!input_element.selection_or_range_applies())
+            return WebIDL::InvalidStateError::create(html_element.realm(), "setSelectionStart does not apply to this input type"_string);
+    }
 
-    // FIXME: 2. Let end be the value of this element's selectionEnd attribute.
-    // FIXME: 3. If end is less than the given value, set end to the given value.
-    // FIXME: 4. Set the selection range with the given value, end, and the value of this element's selectionDirection attribute.
+    // 2. Let end be the value of this element's selectionEnd attribute.
+    auto end = m_selection_end;
+
+    // 3. If end is less than the given value, set end to the given value.
+    if (value.has_value() && end < value.value())
+        end = value.value();
+
+    // 4. Set the selection range with the given value, end, and the value of this element's
+    //    selectionDirection attribute.
+    set_the_selection_range(value, end, selection_direction_state());
     return {};
 }
 
 // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-textarea/input-selectionend
-WebIDL::UnsignedLong FormAssociatedElement::selection_end() const
+Optional<WebIDL::UnsignedLong> FormAssociatedTextControlElement::selection_end() const
 {
-    // 1. If this element is an input element, and selectionEnd does not apply to this element, return null.
-    // NOTE: This is done by HTMLInputElement before calling this function
+    // 1. If this element is an input element, and selectionEnd does not apply to this element, return
+    //    null.
+    auto const& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element)) {
+        auto const& input_element = static_cast<HTMLInputElement const&>(html_element);
+        if (!input_element.selection_or_range_applies())
+            return {};
+    }
 
-    // 2. If there is no selection, return the code unit offset within the relevant value to the character that
-    //    immediately follows the text entry cursor.
-    if (auto cursor = form_associated_element_to_html_element().document().cursor_position())
-        return cursor->offset();
+    // 2. If there is no selection, return the code unit offset within the relevant value to the
+    //    character that immediately follows the text entry cursor.
+    if (m_selection_start == m_selection_end) {
+        return m_selection_start;
+    }
 
-    // FIXME: 3. Return the code unit offset within the relevant value to the character that immediately follows the end of
-    //           the selection.
-    return 0;
+    // 3. Return the code unit offset within the relevant value to the character that immediately
+    //    follows the end of the selection.
+    return m_selection_start < m_selection_end ? m_selection_end : m_selection_start;
 }
 
 // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#textFieldSelection:dom-textarea/input-selectionend-3
-WebIDL::ExceptionOr<void> FormAssociatedElement::set_selection_end(Optional<WebIDL::UnsignedLong> const&)
+WebIDL::ExceptionOr<void> FormAssociatedTextControlElement::set_selection_end(Optional<WebIDL::UnsignedLong> const& value)
 {
-    // 1. If this element is an input element, and selectionEnd does not apply to this element, throw an
-    //    "InvalidStateError" DOMException.
-    // NOTE: This is done by HTMLInputElement before calling this function
+    // 1. If this element is an input element, and selectionEnd does not apply to this element,
+    //    throw an "InvalidStateError" DOMException.
+    auto& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element)) {
+        auto& input_element = static_cast<HTMLInputElement&>(html_element);
+        if (!input_element.selection_or_range_applies())
+            return WebIDL::InvalidStateError::create(html_element.realm(), "setSelectionEnd does not apply to this input type"_string);
+    }
 
-    // FIXME: 2. Set the selection range with the value of this element's selectionStart attribute, the given value, and the
-    //           value of this element's selectionDirection attribute.
+    // 2. Set the selection range with the value of this element's selectionStart attribute, the
+    //    given value, and the value of this element's selectionDirection attribute.
+    set_the_selection_range(m_selection_start, value, selection_direction_state());
     return {};
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#selection-direction
+Optional<String> FormAssociatedTextControlElement::selection_direction() const
+{
+    // 1. If this element is an input element, and selectionDirection does not apply to this
+    //    element, return null.
+    auto const& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element)) {
+        auto const& input_element = static_cast<HTMLInputElement const&>(html_element);
+        if (!input_element.selection_or_range_applies())
+            return {};
+    }
+
+    // 2. Return this element's selection direction.
+    switch (m_selection_direction) {
+    case SelectionDirection::Forward:
+        return "forward"_string;
+    case SelectionDirection::Backward:
+        return "backward"_string;
+    case SelectionDirection::None:
+        return "none"_string;
+    default:
+        VERIFY_NOT_REACHED();
+    }
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#set-the-selection-direction
+void FormAssociatedTextControlElement::set_selection_direction(Optional<String> direction)
+{
+    // To set the selection direction of an element to a given direction, update the element's
+    // selection direction to the given direction, unless the direction is "none" and the
+    // platform does not support that direction; in that case, update the element's selection
+    // direction to "forward".
+    m_selection_direction = string_to_selection_direction(direction);
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-textarea/input-selectiondirection
+WebIDL::ExceptionOr<void> FormAssociatedTextControlElement::set_selection_direction_binding(Optional<String> direction)
+{
+    // 1. If this element is an input element, and selectionDirection does not apply to this element,
+    //    throw an "InvalidStateError" DOMException.
+    auto const& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element)) {
+        auto const& input_element = static_cast<HTMLInputElement const&>(html_element);
+        if (!input_element.selection_direction_applies())
+            return WebIDL::InvalidStateError::create(input_element.realm(), "selectionDirection does not apply to element"_string);
+    }
+
+    set_the_selection_range(m_selection_start, m_selection_end, string_to_selection_direction(direction));
+    return {};
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-textarea/input-setrangetext
+WebIDL::ExceptionOr<void> FormAssociatedTextControlElement::set_range_text(String const& replacement)
+{
+    return set_range_text(replacement, m_selection_start, m_selection_end);
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-textarea/input-setrangetext
+WebIDL::ExceptionOr<void> FormAssociatedTextControlElement::set_range_text(String const& replacement, WebIDL::UnsignedLong start, WebIDL::UnsignedLong end, Bindings::SelectionMode selection_mode)
+{
+    // 1. If this element is an input element, and setRangeText() does not apply to this element,
+    //    throw an "InvalidStateError" DOMException.
+    auto& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element) && !static_cast<HTMLInputElement&>(html_element).selection_or_range_applies())
+        return WebIDL::InvalidStateError::create(html_element.realm(), "setRangeText does not apply to this input type"_string);
+
+    // 2. Set this element's dirty value flag to true.
+    set_dirty_value_flag(true);
+
+    // 3. If the method has only one argument, then let start and end have the values of the selectionStart attribute and the selectionEnd attribute respectively.
+    //    Otherwise, let start, end have the values of the second and third arguments respectively.
+    // NOTE: This is handled by the caller.
+
+    // 4. If start is greater than end, then throw an "IndexSizeError" DOMException.
+    if (start > end)
+        return WebIDL::IndexSizeError::create(html_element.realm(), "The start argument must be less than or equal to the end argument"_string);
+
+    // 5. If start is greater than the length of the relevant value of the text control, then set it to the length of the relevant value of the text control.
+    auto the_relevant_value = relevant_value();
+    auto relevant_value_length = the_relevant_value.code_points().length();
+    if (start > relevant_value_length)
+        start = relevant_value_length;
+
+    // 6. If end is greater than the length of the relevant value of the text control, then set it to the length of the relevant value of the text control.
+    if (end > relevant_value_length)
+        end = relevant_value_length;
+
+    // 7. Let selection start be the current value of the selectionStart attribute.
+    auto selection_start = m_selection_start;
+
+    // 8. Let selection end be the current value of the selectionEnd attribute.
+    auto selection_end = m_selection_end;
+
+    // 9. If start is less than end, delete the sequence of code units within the element's relevant value starting with
+    //    the code unit at the startth position and ending with the code unit at the (end-1)th position.
+    if (start < end) {
+        StringBuilder builder;
+        auto before_removal_point_view = the_relevant_value.code_points().unicode_substring_view(0, start);
+        builder.append(before_removal_point_view.as_string());
+        auto after_removal_point_view = the_relevant_value.code_points().unicode_substring_view(end);
+        builder.append(after_removal_point_view.as_string());
+        the_relevant_value = MUST(builder.to_string());
+    }
+
+    // 10. Insert the value of the first argument into the text of the relevant value of the text control, immediately before the startth code unit.
+    StringBuilder builder;
+    auto before_insertion_point_view = the_relevant_value.code_points().unicode_substring_view(0, start);
+    builder.append(before_insertion_point_view.as_string());
+    builder.append(replacement);
+    auto after_insertion_point_view = the_relevant_value.code_points().unicode_substring_view(start);
+    builder.append(after_insertion_point_view.as_string());
+    the_relevant_value = MUST(builder.to_string());
+    TRY(set_relevant_value(the_relevant_value));
+
+    // 11. Let new length be the length of the value of the first argument.
+    i64 new_length = replacement.code_points().length();
+
+    // 12. Let new end be the sum of start and new length.
+    auto new_end = start + new_length;
+
+    // 13. Run the appropriate set of substeps from the following list:
+    switch (selection_mode) {
+    // If the fourth argument's value is "select"
+    case Bindings::SelectionMode::Select:
+        // Let selection start be start.
+        selection_start = start;
+
+        // Let selection end be new end.
+        selection_end = new_end;
+        break;
+
+    // If the fourth argument's value is "start"
+    case Bindings::SelectionMode::Start:
+        // Let selection start and selection end be start.
+        selection_start = start;
+        selection_end = start;
+        break;
+
+    // If the fourth argument's value is "end"
+    case Bindings::SelectionMode::End:
+        selection_start = new_end;
+        selection_end = new_end;
+        break;
+
+    // If the fourth argument's value is "preserve"
+    case Bindings::SelectionMode::Preserve:
+        // 1. Let old length be end minus start.
+        auto old_length = end - start;
+
+        // 2. Let delta be new length minus old length.
+        auto delta = new_length - old_length;
+
+        // 3. If selection start is greater than end, then increment it by delta.
+        //    (If delta is negative, i.e. the new text is shorter than the old text, then this will decrease the value of selection start.)
+        //    Otherwise: if selection start is greater than start, then set it to start.
+        //    (This snaps the start of the selection to the start of the new text if it was in the middle of the text that it replaced.)
+        if (selection_start > end)
+            selection_start += delta;
+        else if (selection_start > start)
+            selection_start = start;
+
+        // 4. If selection end is greater than end, then increment it by delta in the same way.
+        //    Otherwise: if selection end is greater than start, then set it to new end.
+        //    (This snaps the end of the selection to the end of the new text if it was in the middle of the text that it replaced.)
+        if (selection_end > end)
+            selection_end += delta;
+        else if (selection_end > start)
+            selection_end = new_end;
+        break;
+    }
+
+    // 14. Set the selection range with selection start and selection end.
+    set_the_selection_range(selection_start, selection_end);
+
+    return {};
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-textarea/input-setselectionrange
+WebIDL::ExceptionOr<void> FormAssociatedTextControlElement::set_selection_range(Optional<WebIDL::UnsignedLong> start, Optional<WebIDL::UnsignedLong> end, Optional<String> direction)
+{
+    // 1. If this element is an input element, and setSelectionRange() does not apply to this
+    //    element, throw an "InvalidStateError" DOMException.
+    auto& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element) && !static_cast<HTMLInputElement&>(html_element).selection_or_range_applies())
+        return WebIDL::InvalidStateError::create(html_element.realm(), "setSelectionRange does not apply to this input type"_string);
+
+    // 2. Set the selection range with start, end, and direction.
+    set_the_selection_range(start, end, string_to_selection_direction(direction));
+    return {};
+}
+
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#set-the-selection-range
+void FormAssociatedTextControlElement::set_the_selection_range(Optional<WebIDL::UnsignedLong> start, Optional<WebIDL::UnsignedLong> end, SelectionDirection direction, SelectionSource source)
+{
+    // 1. If start is null, let start be zero.
+    start = start.value_or(0);
+
+    // 2. If end is null, let end be zero.
+    end = end.value_or(0);
+
+    // 3. Set the selection of the text control to the sequence of code units within the relevant
+    //    value starting with the code unit at the startth position (in logical order) and ending
+    //    with the code unit at the (end-1)th position. Arguments greater than the length of the
+    //    relevant value of the text control (including the special value infinity) must be treated
+    //    as pointing at the end of the text control.
+    auto the_relevant_value = relevant_value();
+    auto relevant_value_length = the_relevant_value.code_points().length();
+    auto new_selection_start = AK::min(start.value(), relevant_value_length);
+    auto new_selection_end = AK::min(end.value(), relevant_value_length);
+
+    //    If end is less than or equal to start then the start of the selection and the end of the
+    //    selection must both be placed immediately before the character with offset end. In UAs
+    //    where there is no concept of an empty selection, this must set the cursor to be just
+    //    before the character with offset end.
+    new_selection_start = AK::min(new_selection_start, new_selection_end);
+
+    bool was_modified = m_selection_start != new_selection_start || m_selection_end != new_selection_end;
+    m_selection_start = new_selection_start;
+    m_selection_end = new_selection_end;
+
+    // 4. If direction is not identical to either "backward" or "forward", or if the direction
+    //    argument was not given, set direction to "none".
+    // NOTE: This is handled by the argument's default value and ::string_to_selection_direction().
+
+    // 5. Set the selection direction of the text control to direction.
+    was_modified |= m_selection_direction != direction;
+    m_selection_direction = direction;
+
+    // 6. If the previous steps caused the selection of the text control to be modified (in either
+    //    extent or direction), then queue an element task on the user interaction task source
+    //    given the element to fire an event named select at the element, with the bubbles attribute
+    //    initialized to true.
+    if (was_modified) {
+        auto& html_element = form_associated_element_to_html_element();
+
+        // AD-HOC: We don't fire the event if the user moves the cursor without selecting any text.
+        //         This is not in the spec but matches how other browsers behave.
+        if (source == SelectionSource::DOM || m_selection_start != m_selection_end) {
+            html_element.queue_an_element_task(Task::Source::UserInteraction, [&html_element] {
+                auto select_event = DOM::Event::create(html_element.realm(), EventNames::select, { .bubbles = true });
+                static_cast<DOM::EventTarget*>(&html_element)->dispatch_event(select_event);
+            });
+        }
+
+        selection_was_changed();
+    }
+}
+
+void FormAssociatedTextControlElement::handle_insert(String const& data)
+{
+    auto text_node = form_associated_element_to_text_node();
+    if (!text_node || !text_node->is_editable())
+        return;
+
+    String data_for_insertion = data;
+    // FIXME: Cut by UTF-16 code units instead of raw bytes
+    if (auto max_length = text_node->max_length(); max_length.has_value()) {
+        auto remaining_length = *max_length - text_node->data().code_points().length();
+        if (remaining_length < data.code_points().length()) {
+            data_for_insertion = MUST(data.substring_from_byte_offset(0, remaining_length));
+        }
+    }
+    auto selection_start = this->selection_start();
+    auto selection_end = this->selection_end();
+    if (!selection_start.has_value() || !selection_end.has_value()) {
+        return;
+    }
+    MUST(set_range_text(data_for_insertion, selection_start.value(), selection_end.value(), Bindings::SelectionMode::End));
+
+    text_node->invalidate_style(DOM::StyleInvalidationReason::EditingInsertion);
+    text_node->editable_text_node_owner()->did_edit_text_node();
+}
+
+void FormAssociatedTextControlElement::handle_delete(DeleteDirection direction)
+{
+    auto text_node = form_associated_element_to_text_node();
+    if (!text_node || !text_node->is_editable())
+        return;
+    auto selection_start = this->selection_start();
+    auto selection_end = this->selection_end();
+    if (!selection_start.has_value() || !selection_end.has_value()) {
+        return;
+    }
+    if (selection_start == selection_end) {
+        if (direction == DeleteDirection::Backward) {
+            if (selection_start.value() > 0) {
+                MUST(set_range_text(String {}, selection_start.value() - 1, selection_end.value(), Bindings::SelectionMode::End));
+            }
+        } else {
+            if (selection_start.value() < text_node->data().code_points().length()) {
+                MUST(set_range_text(String {}, selection_start.value(), selection_end.value() + 1, Bindings::SelectionMode::End));
+            }
+        }
+        return;
+    }
+    MUST(set_range_text(String {}, selection_start.value(), selection_end.value(), Bindings::SelectionMode::End));
+}
+
+void FormAssociatedTextControlElement::handle_return_key()
+{
+    auto& html_element = form_associated_element_to_html_element();
+    if (is<HTMLInputElement>(html_element)) {
+        auto& input_element = static_cast<HTMLInputElement&>(html_element);
+        if (auto* form = input_element.form()) {
+            form->implicitly_submit_form().release_value_but_fixme_should_propagate_errors();
+            return;
+        }
+        input_element.commit_pending_changes();
+    }
+}
+
+void FormAssociatedTextControlElement::collapse_selection_to_offset(size_t position)
+{
+    m_selection_start = position;
+    m_selection_end = position;
+}
+
+void FormAssociatedTextControlElement::selection_was_changed()
+{
+    auto& element = form_associated_element_to_html_element();
+    if (is<HTML::HTMLInputElement>(element)) {
+        schedule_a_selectionchange_event(static_cast<HTML::HTMLInputElement&>(element), element.document());
+    } else if (is<HTML::HTMLTextAreaElement>(element)) {
+        schedule_a_selectionchange_event(static_cast<HTML::HTMLTextAreaElement&>(element), element.document());
+    } else {
+        VERIFY_NOT_REACHED();
+    }
+
+    auto text_node = form_associated_element_to_text_node();
+    if (!text_node)
+        return;
+    auto* text_paintable = text_node->paintable();
+    if (!text_paintable)
+        return;
+    if (m_selection_start == m_selection_end) {
+        text_paintable->set_selected(false);
+        text_paintable->set_selection_state(Painting::Paintable::SelectionState::None);
+        text_node->document().reset_cursor_blink_cycle();
+    } else {
+        text_paintable->set_selected(true);
+        text_paintable->set_selection_state(Painting::Paintable::SelectionState::StartAndEnd);
+    }
+    text_paintable->set_needs_display();
+}
+
+void FormAssociatedTextControlElement::select_all()
+{
+    auto text_node = form_associated_element_to_text_node();
+    if (!text_node)
+        return;
+    set_the_selection_range(0, text_node->length());
+    selection_was_changed();
+}
+
+void FormAssociatedTextControlElement::set_selection_anchor(JS::NonnullGCPtr<DOM::Node> anchor_node, size_t anchor_offset)
+{
+    auto text_node = form_associated_element_to_text_node();
+    if (!text_node || anchor_node != text_node)
+        return;
+    collapse_selection_to_offset(anchor_offset);
+    selection_was_changed();
+}
+
+void FormAssociatedTextControlElement::set_selection_focus(JS::NonnullGCPtr<DOM::Node> focus_node, size_t focus_offset)
+{
+    auto text_node = form_associated_element_to_text_node();
+    if (!text_node || focus_node != text_node)
+        return;
+    m_selection_end = focus_offset;
+    selection_was_changed();
+}
+
+void FormAssociatedTextControlElement::move_cursor_to_start(CollapseSelection collapse)
+{
+    auto text_node = form_associated_element_to_text_node();
+    if (!text_node)
+        return;
+    if (collapse == CollapseSelection::Yes) {
+        collapse_selection_to_offset(0);
+    } else {
+        m_selection_end = 0;
+    }
+    selection_was_changed();
+}
+
+void FormAssociatedTextControlElement::move_cursor_to_end(CollapseSelection collapse)
+{
+    auto text_node = form_associated_element_to_text_node();
+    if (!text_node)
+        return;
+    if (collapse == CollapseSelection::Yes) {
+        collapse_selection_to_offset(text_node->length());
+    } else {
+        m_selection_end = text_node->length();
+    }
+    selection_was_changed();
+}
+
+void FormAssociatedTextControlElement::increment_cursor_position_offset(CollapseSelection collapse)
+{
+    auto const text_node = form_associated_element_to_text_node();
+    if (!text_node)
+        return;
+    if (auto offset = text_node->grapheme_segmenter().next_boundary(m_selection_end); offset.has_value()) {
+        if (collapse == CollapseSelection::Yes) {
+            collapse_selection_to_offset(*offset);
+        } else {
+            m_selection_end = *offset;
+        }
+    }
+    selection_was_changed();
+}
+
+void FormAssociatedTextControlElement::decrement_cursor_position_offset(CollapseSelection collapse)
+{
+    auto const text_node = form_associated_element_to_text_node();
+    if (!text_node)
+        return;
+    if (auto offset = text_node->grapheme_segmenter().previous_boundary(m_selection_end); offset.has_value()) {
+        if (collapse == CollapseSelection::Yes) {
+            collapse_selection_to_offset(*offset);
+        } else {
+            m_selection_end = *offset;
+        }
+    }
+    selection_was_changed();
+}
+
+void FormAssociatedTextControlElement::increment_cursor_position_to_next_word(CollapseSelection collapse)
+{
+    auto const text_node = form_associated_element_to_text_node();
+    if (!text_node)
+        return;
+
+    while (true) {
+        if (auto offset = text_node->word_segmenter().next_boundary(m_selection_end); offset.has_value()) {
+            auto word = text_node->data().code_points().substring_view(m_selection_end, *offset - m_selection_end);
+            if (collapse == CollapseSelection::Yes) {
+                collapse_selection_to_offset(*offset);
+            } else {
+                m_selection_end = *offset;
+            }
+            if (Unicode::Segmenter::should_continue_beyond_word(word))
+                continue;
+        }
+        break;
+    }
+
+    selection_was_changed();
+}
+
+void FormAssociatedTextControlElement::decrement_cursor_position_to_previous_word(CollapseSelection collapse)
+{
+    auto const text_node = form_associated_element_to_text_node();
+    if (!text_node)
+        return;
+
+    while (true) {
+        if (auto offset = text_node->word_segmenter().previous_boundary(m_selection_end); offset.has_value()) {
+            auto word = text_node->data().code_points().substring_view(m_selection_end, m_selection_end - *offset);
+            if (collapse == CollapseSelection::Yes) {
+                collapse_selection_to_offset(*offset);
+            } else {
+                m_selection_end = *offset;
+            }
+            if (Unicode::Segmenter::should_continue_beyond_word(word))
+                continue;
+        }
+        break;
+    }
+
+    selection_was_changed();
+}
+
+JS::GCPtr<DOM::Position> FormAssociatedTextControlElement::cursor_position() const
+{
+    auto const node = form_associated_element_to_text_node();
+    if (!node)
+        return nullptr;
+    if (m_selection_start == m_selection_end)
+        return DOM::Position::create(node->realm(), const_cast<DOM::Text&>(*node), m_selection_start);
+    return nullptr;
 }
 
 }

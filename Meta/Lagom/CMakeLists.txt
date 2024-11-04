@@ -132,8 +132,6 @@ if (ENABLE_FUZZERS)
     add_cxx_compile_options(-fno-omit-frame-pointer)
 endif()
 
-CHECK_INCLUDE_FILE(pulse/pulseaudio.h HAVE_PULSEAUDIO)
-
 add_library(JSClangPlugin INTERFACE)
 add_library(GenericClangPlugin INTERFACE)
 
@@ -326,7 +324,7 @@ add_lagom_library_install_rules(JSClangPlugin)
 # Create mostly empty targets for system libraries we don't need to build for Lagom
 add_library(LibC INTERFACE)
 add_library(LibCrypt INTERFACE)
-if (NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" AND NOT HAIKU)
+if (NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD" AND NOT HAIKU AND NOT WIN32)
     target_link_libraries(LibCrypt INTERFACE crypt) # LibCore::Account uses crypt() but it's not in libcrypt on macOS
 endif()
 add_library(NoCoverage INTERFACE)
@@ -382,7 +380,6 @@ endif()
 # Lagom Libraries
 set(lagom_standard_libraries
     Archive
-    Audio
     Compress
     Crypto
     Diff
@@ -390,8 +387,8 @@ set(lagom_standard_libraries
     IPC
     JS
     Line
-    Protocol
     Regex
+    Requests
     RIFF
     Syntax
     TextCodec
@@ -449,14 +446,12 @@ if (ENABLE_FUZZERS OR ENABLE_COMPILER_EXPLORER_BUILD OR ANDROID OR IOS)
 endif()
 
 # Lagom Utilities
-lagom_utility(abench SOURCES ../../Userland/Utilities/abench.cpp LIBS LibMain LibFileSystem LibAudio)
-lagom_utility(aconv SOURCES ../../Userland/Utilities/aconv.cpp LIBS LibMain LibFileSystem LibAudio)
+lagom_utility(abench SOURCES ../../Userland/Utilities/abench.cpp LIBS LibMain LibFileSystem LibMedia)
 
 if (ENABLE_GUI_TARGETS)
     lagom_utility(animation SOURCES ../../Userland/Utilities/animation.cpp LIBS LibGfx LibMain)
     lagom_utility(icc SOURCES ../../Userland/Utilities/icc.cpp LIBS LibGfx LibMain LibURL)
     lagom_utility(image SOURCES ../../Userland/Utilities/image.cpp LIBS LibGfx LibMain)
-    lagom_utility(ttfdisasm SOURCES ../../Userland/Utilities/ttfdisasm.cpp LIBS LibGfx LibMain)
 endif()
 
 lagom_utility(js SOURCES ../../Userland/Utilities/js.cpp LIBS LibCrypto LibJS LibLine LibUnicode LibMain LibTextCodec Threads::Threads)
@@ -514,6 +509,7 @@ if (BUILD_TESTING)
         LibCompress
         LibTest
         LibTextCodec
+        LibThreading
         LibUnicode
         LibURL
         LibXML
@@ -523,7 +519,6 @@ if (BUILD_TESTING)
         list(APPEND TEST_DIRECTORIES
             LibGfx
             LibMedia
-            LibTTF
             LibWeb
             LibWebView
         )
@@ -540,14 +535,6 @@ if (BUILD_TESTING)
     # LibTLS needs a special working directory to find cacert.pem
     lagom_test(../../Tests/LibTLS/TestTLSHandshake.cpp LibTLS LIBS LibTLS LibCrypto)
     lagom_test(../../Tests/LibTLS/TestTLSCertificateParser.cpp LibTLS LIBS LibTLS LibCrypto)
-
-    # The FLAC tests need a special working directory to find the test files
-    lagom_test(../../Tests/LibAudio/TestFLACSpec.cpp LIBS LibAudio WORKING_DIRECTORY "${FLAC_TEST_PATH}/..")
-
-    lagom_test(../../Tests/LibAudio/TestPlaybackStream.cpp LIBS LibAudio)
-    if (HAVE_PULSEAUDIO)
-        target_compile_definitions(TestPlaybackStream PRIVATE HAVE_PULSEAUDIO=1)
-    endif()
 
     # LibCore
     lagom_test(../../Tests/LibCore/TestLibCoreArgsParser.cpp)

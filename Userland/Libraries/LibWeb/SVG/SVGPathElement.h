@@ -32,6 +32,6 @@ private:
     Vector<PathInstruction> m_instructions;
 };
 
-Gfx::Path path_from_path_instructions(ReadonlySpan<PathInstruction>);
+[[nodiscard]] Gfx::Path path_from_path_instructions(ReadonlySpan<PathInstruction>);
 
 }

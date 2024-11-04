@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2024, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2024, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2022, Timothy Slater <tslater2006@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -73,9 +73,6 @@ public:
 
     ErrorOr<NonnullRefPtr<Gfx::Bitmap>> clone() const;
 
-    ErrorOr<NonnullRefPtr<Gfx::Bitmap>> scaled(int sx, int sy) const;
-    ErrorOr<NonnullRefPtr<Gfx::Bitmap>> scaled(float sx, float sy) const;
-    ErrorOr<NonnullRefPtr<Gfx::Bitmap>> scaled_to_size(Gfx::IntSize) const;
     ErrorOr<NonnullRefPtr<Gfx::Bitmap>> cropped(Gfx::IntRect, Optional<BitmapFormat> new_bitmap_format = {}) const;
     ErrorOr<NonnullRefPtr<Gfx::Bitmap>> to_bitmap_backed_by_anonymous_buffer() const;
 
@@ -94,6 +91,11 @@ public:
     [[nodiscard]] u8 const* scanline_u8(int physical_y) const;
     [[nodiscard]] ARGB32* scanline(int physical_y);
     [[nodiscard]] ARGB32 const* scanline(int physical_y) const;
+
+    [[nodiscard]] u8* unchecked_scanline_u8(int physical_y);
+    [[nodiscard]] u8 const* unchecked_scanline_u8(int physical_y) const;
+    [[nodiscard]] ARGB32* unchecked_scanline(int physical_y);
+    [[nodiscard]] ARGB32 const* unchecked_scanline(int physical_y) const;
 
     [[nodiscard]] ARGB32* begin();
     [[nodiscard]] ARGB32 const* begin() const;
@@ -128,8 +130,6 @@ public:
         return bpp_for_format(m_format);
     }
 
-    void fill(Color);
-
     [[nodiscard]] bool has_alpha_channel() const { return m_format == BitmapFormat::BGRA8888 || m_format == BitmapFormat::RGBA8888; }
     [[nodiscard]] BitmapFormat format() const { return m_format; }
 
@@ -138,6 +138,9 @@ public:
 
     [[nodiscard]] static constexpr size_t size_in_bytes(size_t pitch, int height) { return pitch * height; }
     [[nodiscard]] size_t size_in_bytes() const { return size_in_bytes(m_pitch, height()); }
+
+    template<StorageFormat>
+    [[nodiscard]] Color unchecked_get_pixel(int physical_x, int physical_y) const;
 
     template<StorageFormat>
     [[nodiscard]] Color get_pixel(int physical_x, int physical_y) const;
@@ -178,18 +181,38 @@ private:
     Function<void()> m_destruction_callback;
 };
 
+ALWAYS_INLINE u8* Bitmap::unchecked_scanline_u8(int y)
+{
+    return reinterpret_cast<u8*>(m_data) + (y * m_pitch);
+}
+
+ALWAYS_INLINE u8 const* Bitmap::unchecked_scanline_u8(int y) const
+{
+    return reinterpret_cast<u8 const*>(m_data) + (y * m_pitch);
+}
+
+ALWAYS_INLINE ARGB32* Bitmap::unchecked_scanline(int y)
+{
+    return reinterpret_cast<ARGB32*>(unchecked_scanline_u8(y));
+}
+
+ALWAYS_INLINE ARGB32 const* Bitmap::unchecked_scanline(int y) const
+{
+    return reinterpret_cast<ARGB32 const*>(unchecked_scanline_u8(y));
+}
+
 ALWAYS_INLINE u8* Bitmap::scanline_u8(int y)
 {
     VERIFY(y >= 0);
     VERIFY(y < height());
-    return reinterpret_cast<u8*>(m_data) + (y * m_pitch);
+    return unchecked_scanline_u8(y);
 }
 
 ALWAYS_INLINE u8 const* Bitmap::scanline_u8(int y) const
 {
     VERIFY(y >= 0);
     VERIFY(y < height());
-    return reinterpret_cast<u8 const*>(m_data) + (y * m_pitch);
+    return unchecked_scanline_u8(y);
 }
 
 ALWAYS_INLINE ARGB32* Bitmap::scanline(int y)
@@ -228,19 +251,23 @@ ALWAYS_INLINE size_t Bitmap::data_size() const
 }
 
 template<>
-ALWAYS_INLINE Color Bitmap::get_pixel<StorageFormat::BGRx8888>(int x, int y) const
+ALWAYS_INLINE Color Bitmap::unchecked_get_pixel<StorageFormat::BGRx8888>(int x, int y) const
 {
-    VERIFY(x >= 0);
-    VERIFY(x < width());
-    return Color::from_rgb(scanline(y)[x]);
+    return Color::from_rgb(unchecked_scanline(y)[x]);
 }
 
 template<>
-ALWAYS_INLINE Color Bitmap::get_pixel<StorageFormat::BGRA8888>(int x, int y) const
+ALWAYS_INLINE Color Bitmap::unchecked_get_pixel<StorageFormat::BGRA8888>(int x, int y) const
+{
+    return Color::from_argb(unchecked_scanline(y)[x]);
+}
+
+template<StorageFormat storage_format>
+ALWAYS_INLINE Color Bitmap::get_pixel(int x, int y) const
 {
     VERIFY(x >= 0);
     VERIFY(x < width());
-    return Color::from_argb(scanline(y)[x]);
+    return unchecked_get_pixel<storage_format>(x, y);
 }
 
 ALWAYS_INLINE Color Bitmap::get_pixel(int x, int y) const

@@ -17,9 +17,9 @@ interface HTMLInputElement : HTMLElement {
     [CEReactions, Reflect] attribute boolean disabled;
     readonly attribute HTMLFormElement? form;
     attribute FileList? files;
-    [FIXME, CEReactions] attribute USVString formAction;
-    [FIXME, CEReactions] attribute DOMString formEnctype;
-    [FIXME, CEReactions] attribute DOMString formMethod;
+    [CEReactions] attribute USVString formAction;
+    [CEReactions, Reflect=formenctype, Enumerated=FormEnctypeAttribute] attribute DOMString formEnctype;
+    [CEReactions, Reflect=formmethod, Enumerated=FormMethodAttribute] attribute DOMString formMethod;
     [CEReactions, Reflect=formnovalidate] attribute boolean formNoValidate;
     [CEReactions, Reflect=formtarget] attribute DOMString formTarget;
     [FIXME, CEReactions] attribute unsigned long height;
@@ -36,7 +36,7 @@ interface HTMLInputElement : HTMLElement {
     [CEReactions, Reflect=readonly] attribute boolean readOnly;
     [CEReactions, Reflect] attribute boolean required;
     [CEReactions] attribute unsigned long size;
-    [CEReactions, Reflect] attribute DOMString src;
+    [CEReactions, Reflect] attribute USVString src;
     [CEReactions, Reflect] attribute DOMString step;
     [CEReactions] attribute DOMString type;
     [CEReactions, Reflect=value] attribute DOMString defaultValue;
@@ -58,11 +58,11 @@ interface HTMLInputElement : HTMLElement {
     readonly attribute NodeList? labels;
 
     undefined select();
-    [ImplementedAs=selection_start_for_bindings] attribute unsigned long? selectionStart;
-    [ImplementedAs=selection_end_for_bindings] attribute unsigned long? selectionEnd;
-    [FIXME] attribute DOMString? selectionDirection;
-    [FIXME] undefined setRangeText(DOMString replacement);
-    [FIXME] undefined setRangeText(DOMString replacement, unsigned long start, unsigned long end, optional SelectionMode selectionMode = "preserve");
+    attribute unsigned long? selectionStart;
+    attribute unsigned long? selectionEnd;
+    [ImplementedAs=selection_direction_binding] attribute DOMString? selectionDirection;
+    undefined setRangeText(DOMString replacement);
+    undefined setRangeText(DOMString replacement, unsigned long start, unsigned long end, optional SelectionMode selectionMode = "preserve");
     undefined setSelectionRange(unsigned long start, unsigned long end, optional DOMString direction);
 
     undefined showPicker();

@@ -15,8 +15,13 @@
 
 namespace Unicode {
 
+static Optional<String> cached_system_time_zone;
+
 String current_time_zone()
 {
+    if (cached_system_time_zone.has_value())
+        return *cached_system_time_zone;
+
     UErrorCode status = U_ZERO_ERROR;
 
     auto time_zone = adopt_own_if_nonnull(icu::TimeZone::detectHostTimeZone());
@@ -32,7 +37,13 @@ String current_time_zone()
     if (icu_failure(status))
         return "UTC"_string;
 
-    return icu_string_to_string(time_zone_name);
+    cached_system_time_zone = icu_string_to_string(time_zone_name);
+    return *cached_system_time_zone;
+}
+
+void clear_system_time_zone_cache()
+{
+    cached_system_time_zone.clear();
 }
 
 // https://github.com/unicode-org/icu/blob/main/icu4c/source/tools/tzcode/icuzones
@@ -120,14 +131,14 @@ Optional<TimeZoneOffset> time_zone_offset(StringView time_zone, UnixDateTime tim
 {
     UErrorCode status = U_ZERO_ERROR;
 
-    auto icu_time_zone = adopt_own_if_nonnull(icu::TimeZone::createTimeZone(icu_string(time_zone)));
-    if (!icu_time_zone || *icu_time_zone == icu::TimeZone::getUnknown())
+    auto time_zone_data = TimeZoneData::for_time_zone(time_zone);
+    if (!time_zone_data.has_value())
         return {};
 
     i32 raw_offset = 0;
     i32 dst_offset = 0;
 
-    icu_time_zone->getOffset(static_cast<UDate>(time.milliseconds_since_epoch()), 0, raw_offset, dst_offset, status);
+    time_zone_data->time_zone().getOffset(static_cast<UDate>(time.milliseconds_since_epoch()), 0, raw_offset, dst_offset, status);
     if (icu_failure(status))
         return {};
 

@@ -5,14 +5,25 @@ include(vulkan)
 set(SOURCES
     ArgsParser.cpp
     Directory.cpp
-    DirectoryEntry.cpp
-    DirIterator.cpp
     Environment.cpp
     File.cpp
     StandardPaths.cpp
-    System.cpp
     Version.cpp
 )
+
+if (WIN32)
+    list(APPEND SOURCES
+        DirectoryEntryWindows.cpp
+        DirIteratorWindows.cpp
+        SystemWindows.cpp
+    )
+else()
+    list(APPEND SOURCES
+        DirectoryEntry.cpp
+        DirIterator.cpp
+        System.cpp
+    )
+endif()
 
 serenity_lib(LibCoreMinimal coreminimal)
 
@@ -31,53 +42,43 @@ set(SOURCES
     EventLoopImplementation.cpp
     EventLoopImplementationUnix.cpp
     EventReceiver.cpp
-    LockFile.cpp
     MappedFile.cpp
     MimeData.cpp
-    NetworkJob.cpp
     Notifier.cpp
     Process.cpp
-    ProcessStatisticsReader.cpp
     Resource.cpp
     ResourceImplementation.cpp
     ResourceImplementationFile.cpp
-    SecretString.cpp
     SessionManagement.cpp
     Socket.cpp
-    SOCKSProxyClient.cpp
     SystemServerTakeover.cpp
     TCPServer.cpp
     ThreadEventQueue.cpp
     Timer.cpp
     UDPServer.cpp
 )
-if (NOT ANDROID AND NOT WIN32 AND NOT EMSCRIPTEN)
-    list(APPEND SOURCES
-        Account.cpp
-        FilePermissionsMask.cpp
-        GetPassword.cpp
-        Group.cpp
-    )
-endif()
 if (NOT WIN32 AND NOT EMSCRIPTEN)
     list(APPEND SOURCES LocalServer.cpp)
 endif()
 
-# FIXME: Implement Core::FileWatcher for *BSD and Windows.
+# FIXME: Implement these for other systems.
 if (LINUX AND NOT EMSCRIPTEN)
     list(APPEND SOURCES
         FileWatcherLinux.cpp
         Platform/ProcessStatisticsLinux.cpp
+        TimeZoneWatcherLinux.cpp
     )
 elseif (APPLE AND NOT IOS)
     list(APPEND SOURCES
         FileWatcherMacOS.mm
         Platform/ProcessStatisticsMach.cpp
+        TimeZoneWatcherMacOS.mm
     )
 else()
     list(APPEND SOURCES
         FileWatcherUnimplemented.cpp
         Platform/ProcessStatisticsUnimplemented.cpp
+        TimeZoneWatcherUnimplemented.cpp
     )
 endif()
 

@@ -6,13 +6,15 @@ import subprocess
 import sys
 
 
-RE_RELEVANT_FILE_EXTENSION = re.compile('\\.(cpp|h|gml|html|js|css|sh|py|json|txt)$')
+RE_RELEVANT_FILE_EXTENSION = re.compile('\\.(cpp|h|mm|swift|gml|html|js|css|sh|py|json|txt|cmake|gn|gni)$')
 
 
 def should_check_file(filename):
     if not RE_RELEVANT_FILE_EXTENSION.search(filename):
         return False
     if filename.startswith('Tests/LibWeb/Layout/'):
+        return False
+    if filename.startswith('Tests/LibWeb/Text/'):
         return False
     if filename.endswith('.txt'):
         return 'CMake' in filename

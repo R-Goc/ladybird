@@ -19,22 +19,17 @@ void ClipFrame::add_clip_rect(CSSPixelRect rect, BorderRadiiData radii, RefPtr<S
     m_clip_rects.append({ rect, radii, move(enclosing_scroll_frame) });
 }
 
-void ClipFrame::clear_rects()
-{
-    m_clip_rects.clear_with_capacity();
-}
-
 CSSPixelRect ClipFrame::clip_rect_for_hit_testing() const
 {
     VERIFY(!m_clip_rects.is_empty());
     auto rect = m_clip_rects[0].rect;
     if (m_clip_rects[0].enclosing_scroll_frame) {
-        rect.translate_by(m_clip_rects[0].enclosing_scroll_frame->offset);
+        rect.translate_by(m_clip_rects[0].enclosing_scroll_frame->cumulative_offset());
     }
     for (size_t i = 1; i < m_clip_rects.size(); ++i) {
         auto clip_rect = m_clip_rects[i].rect;
         if (m_clip_rects[i].enclosing_scroll_frame) {
-            clip_rect.translate_by(m_clip_rects[i].enclosing_scroll_frame->offset);
+            clip_rect.translate_by(m_clip_rects[i].enclosing_scroll_frame->cumulative_offset());
         }
         rect.intersect(clip_rect);
     }

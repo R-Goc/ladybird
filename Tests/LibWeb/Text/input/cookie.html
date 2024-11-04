@@ -12,6 +12,11 @@
         document.cookie = `${name}=""; max-age=-9999`;
     };
 
+    const cookieAverseTest = () => {
+        document.cookie = "cookie=value";
+        printCookies("Cookie averse test");
+    };
+
     const basicTest = () => {
         document.cookie = "cookie=value";
         printCookies("Basic test");
@@ -31,6 +36,57 @@
         deleteCookie("cookie3");
     };
 
+    const namelessCookieTest = () => {
+        document.cookie = "=value";
+        printCookies("Nameless cookie");
+
+        deleteCookie("");
+    };
+
+    const valuelessCookieTest = () => {
+        document.cookie = "cookie=";
+        printCookies("Valueless cookie");
+
+        deleteCookie("cookie");
+    };
+
+    const namelessAndValuelessCookieTest = () => {
+        document.cookie = "=";
+        printCookies("Nameless and valueless cookie");
+    };
+
+    const invalidControlCharacterTest = () => {
+        document.cookie = "cookie=ab\ncd";
+        printCookies("Invalid control character");
+    };
+
+    const nonASCIIDomainTest = () => {
+        document.cookie = "cookie=value; domain=🤓";
+        printCookies("Non-ASCII domain");
+    };
+
+    const defaultPathTest = () => {
+        document.cookie = "cookie1=value; path=";
+        document.cookie = "cookie2=value; path=f";
+
+        printCookies("Default path");
+
+        deleteCookie("cookie1");
+        deleteCookie("cookie2");
+    };
+
+    const secureCookiePrefixTest = () => {
+        document.cookie = "__Secure-cookie=value";
+        printCookies("Secure cookie prefix");
+    };
+
+    const hostCookiePrefixTest = () => {
+        document.cookie = "__Host-cookie1=value";
+        document.cookie = "__Host-cookie2=value; secure";
+        document.cookie = "__Host-cookie3=value; secure; path=/foo";
+        printCookies("Host cookie prefix");
+    };
+
     const largeValueTest = () => {
         const value = "x".repeat(256);
 
@@ -41,7 +97,7 @@
     };
 
     const overlyLargeValueTest = () => {
-        const value = "x".repeat(4096 - "cookie=".length + 1);
+        const value = "x".repeat(4096 - "cookie".length + 1);
 
         document.cookie = `cookie=${value}`;
         printCookies("Overly large value");
@@ -71,29 +127,30 @@
         deleteCookie("cookie");
     };
 
-    const maxAgeTest1 = () => {
-        document.cookie = "cookie-max-age=value; max-age=1";
+    const maxAgeTest = () => {
+        document.cookie = "cookie-max-age1=value; max-age=1";
+        document.cookie = `cookie-max-age2=value; max-age=${"1".repeat(1024)}`;
         printCookies("Max-Age (before expiration)");
-    };
 
-    const maxAgeTest2 = () => {
+        internals.expireCookiesWithTimeOffset(2);
         printCookies("Max-Age (after expiration)");
+        deleteCookie("cookie-max-age2");
     };
 
     const maxAgeInPastTest = () => {
-        document.cookie = "cookie=value; max-age=-1";
+        document.cookie = "cookie1=value; max-age=-1";
+        document.cookie = `cookie2=value; max-age=-${"1".repeat(1023)}`;
         printCookies("Max-Age in past");
     };
 
-    const expiresTest1 = () => {
+    const expiresTest = () => {
         let expiry = new Date(Date.now() + 1000);
         expiry = expiry.toUTCString();
 
         document.cookie = `cookie-expires=value; expires=${expiry}`;
         printCookies("Expires (before expiration)");
-    };
 
-    const expiresTest2 = () => {
+        internals.expireCookiesWithTimeOffset(2);
         printCookies("Expires (after expiration)");
     };
 
@@ -125,9 +182,23 @@
         deleteCookie("cookie");
     };
 
-    asyncTest(done => {
+    test(() => {
+        cookieAverseTest();
+
+        internals.enableCookiesOnFileDomains();
+
         basicTest();
         multipleCookiesTest();
+
+        namelessCookieTest();
+        valuelessCookieTest();
+        namelessAndValuelessCookieTest();
+
+        invalidControlCharacterTest();
+        nonASCIIDomainTest();
+        defaultPathTest();
+        secureCookiePrefixTest();
+        hostCookiePrefixTest();
 
         largeValueTest();
         overlyLargeValueTest();
@@ -136,18 +207,11 @@
         publicSuffixTest();
         sameSiteTest();
 
-        maxAgeTest1();
-        expiresTest1();
+        maxAgeTest();
+        maxAgeInPastTest();
 
-        setTimeout(() => {
-            maxAgeTest2();
-            expiresTest2();
-
-            maxAgeInPastTest();
-            expiresInPastTest();
-            invalidExpiryTest();
-
-            done();
-        }, 1200);
+        expiresTest();
+        expiresInPastTest();
+        invalidExpiryTest();
     });
 </script>

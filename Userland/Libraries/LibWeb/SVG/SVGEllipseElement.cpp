@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibGfx/Path.h>
 #include <LibWeb/Bindings/SVGEllipseElementPrototype.h>
 #include <LibWeb/HTML/Window.h>
 #include <LibWeb/SVG/AttributeNames.h>

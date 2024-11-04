@@ -11,10 +11,13 @@
 
 #import <Cocoa/Cocoa.h>
 
+@class Tab;
+
 struct TabSettings {
     BOOL should_show_line_box_borders { NO };
     BOOL scripting_enabled { YES };
     BOOL block_popups { YES };
+    BOOL autoplay_enabled { NO };
     BOOL same_origin_policy_enabled { NO };
     ByteString user_agent_name { "Disabled"sv };
     ByteString navigator_compatibility_mode { "chrome"sv };
@@ -23,6 +26,8 @@ struct TabSettings {
 @interface TabController : NSWindowController <NSWindowDelegate>
 
 - (instancetype)init;
+- (instancetype)initAsChild:(Tab*)parent
+                  pageIndex:(u64)page_index;
 
 - (void)loadURL:(URL::URL const&)url;
 - (void)loadHTML:(StringView)html url:(URL::URL const&)url;
@@ -35,11 +40,16 @@ struct TabSettings {
 
 - (void)onTitleChange:(ByteString const&)title;
 
+- (void)onCreateNewTab;
+
 - (void)navigateBack:(id)sender;
 - (void)navigateForward:(id)sender;
 - (void)reload:(id)sender;
 - (void)clearHistory;
 
+- (void)setPopupBlocking:(BOOL)block_popups;
+- (void)setScripting:(BOOL)enabled;
+- (void)setAutoplay:(BOOL)enabled;
 - (void)debugRequest:(ByteString const&)request argument:(ByteString const&)argument;
 
 - (void)focusLocationToolbarItem;

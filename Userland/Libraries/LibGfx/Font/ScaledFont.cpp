@@ -4,9 +4,15 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/TypeCasts.h>
 #include <AK/Utf8View.h>
-#include <LibGfx/Font/Emoji.h>
 #include <LibGfx/Font/ScaledFont.h>
+#include <LibGfx/Font/TypefaceSkia.h>
+#include <LibGfx/TextLayout.h>
+
+#include <core/SkFont.h>
+#include <core/SkFontMetrics.h>
+#include <core/SkFontTypes.h>
 
 namespace Gfx {
 
@@ -15,98 +21,50 @@ ScaledFont::ScaledFont(NonnullRefPtr<Typeface> typeface, float point_width, floa
     , m_point_width(point_width)
     , m_point_height(point_height)
 {
-    float units_per_em = m_typeface->units_per_em();
+    float const units_per_em = m_typeface->units_per_em();
     m_x_scale = (point_width * dpi_x) / (POINTS_PER_INCH * units_per_em);
     m_y_scale = (point_height * dpi_y) / (POINTS_PER_INCH * units_per_em);
-
-    auto metrics = m_typeface->metrics(m_x_scale, m_y_scale);
 
     m_pixel_size = m_point_height * (DEFAULT_DPI / POINTS_PER_INCH);
     m_pixel_size_rounded_up = static_cast<int>(ceilf(m_pixel_size));
 
-    m_pixel_metrics = Gfx::FontPixelMetrics {
-        .size = (float)pixel_size(),
-        .x_height = metrics.x_height,
-        .advance_of_ascii_zero = (float)glyph_width('0'),
-        .ascent = metrics.ascender,
-        .descent = metrics.descender,
-        .line_gap = metrics.line_gap,
-    };
+    auto const* sk_typeface = verify_cast<TypefaceSkia>(*m_typeface).sk_typeface();
+    SkFont const font { sk_ref_sp(sk_typeface), m_pixel_size };
+
+    SkFontMetrics skMetrics;
+    font.getMetrics(&skMetrics);
+
+    FontPixelMetrics metrics;
+    metrics.size = font.getSize();
+    metrics.x_height = skMetrics.fXHeight;
+    metrics.advance_of_ascii_zero = font.measureText("0", 1, SkTextEncoding::kUTF8);
+    metrics.ascent = -skMetrics.fAscent;
+    metrics.descent = skMetrics.fDescent;
+    metrics.line_gap = skMetrics.fLeading;
+
+    m_pixel_metrics = metrics;
 }
 
-float ScaledFont::width(StringView view) const { return unicode_view_width(Utf8View(view)); }
-float ScaledFont::width(Utf8View const& view) const { return unicode_view_width(view); }
-
-template<typename T>
-ALWAYS_INLINE float ScaledFont::unicode_view_width(T const& view) const
+ScaledFontMetrics ScaledFont::metrics() const
 {
-    if (view.is_empty())
-        return 0;
-    float width = 0;
-    float longest_width = 0;
-    u32 last_code_point = 0;
+    SkFontMetrics sk_metrics;
+    skia_font(1).getMetrics(&sk_metrics);
 
-    for (auto it = view.begin(); it != view.end(); last_code_point = *it, ++it) {
-        auto code_point = *it;
-
-        if (code_point == '\n' || code_point == '\r') {
-            longest_width = max(width, longest_width);
-            width = 0;
-            continue;
-        }
-
-        auto kerning = glyphs_horizontal_kerning(last_code_point, code_point);
-        width += kerning + glyph_or_emoji_width(it);
-    }
-
-    longest_width = max(width, longest_width);
-    return longest_width;
+    ScaledFontMetrics metrics;
+    metrics.ascender = -sk_metrics.fAscent;
+    metrics.descender = sk_metrics.fDescent;
+    metrics.line_gap = sk_metrics.fLeading;
+    metrics.x_height = sk_metrics.fXHeight;
+    return metrics;
 }
 
-bool ScaledFont::append_glyph_path_to(Gfx::Path& path, u32 glyph_id) const
-{
-    return m_typeface->append_glyph_path_to(path, glyph_id, m_x_scale, m_y_scale);
-}
-
-float ScaledFont::glyph_left_bearing(u32 code_point) const
-{
-    auto id = glyph_id_for_code_point(code_point);
-    return glyph_metrics(id).left_side_bearing;
-}
+float ScaledFont::width(StringView view) const { return measure_text_width(Utf8View(view), *this); }
+float ScaledFont::width(Utf8View const& view) const { return measure_text_width(view, *this); }
 
 float ScaledFont::glyph_width(u32 code_point) const
 {
-    auto id = glyph_id_for_code_point(code_point);
-    return m_typeface->glyph_advance(id, m_x_scale, m_y_scale, m_point_width, m_point_height);
-}
-
-template<typename CodePointIterator>
-static float glyph_or_emoji_width_impl(ScaledFont const& font, CodePointIterator& it)
-{
-    if (!font.has_color_bitmaps()) {
-        if (auto const* emoji = Emoji::emoji_for_code_point_iterator(it))
-            return font.pixel_size() * emoji->width() / emoji->height();
-    }
-
-    return font.glyph_width(*it);
-}
-
-float ScaledFont::glyph_or_emoji_width(Utf8CodePointIterator& it) const
-{
-    return glyph_or_emoji_width_impl(*this, it);
-}
-
-float ScaledFont::glyphs_horizontal_kerning(u32 left_code_point, u32 right_code_point) const
-{
-    if (left_code_point == 0 || right_code_point == 0)
-        return 0.f;
-
-    auto left_glyph_id = glyph_id_for_code_point(left_code_point);
-    auto right_glyph_id = glyph_id_for_code_point(right_code_point);
-    if (left_glyph_id == 0 || right_glyph_id == 0)
-        return 0.f;
-
-    return m_typeface->glyphs_horizontal_kerning(left_glyph_id, right_glyph_id, m_x_scale);
+    auto string = String::from_code_point(code_point);
+    return measure_text_width(Utf8View(string), *this);
 }
 
 NonnullRefPtr<ScaledFont> ScaledFont::scaled_with_size(float point_size) const

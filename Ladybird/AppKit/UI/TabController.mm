@@ -49,6 +49,8 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
 
 @interface TabController () <NSToolbarDelegate, NSSearchFieldDelegate>
 {
+    u64 m_page_index;
+
     ByteString m_title;
 
     TabSettings m_settings;
@@ -56,6 +58,8 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
     bool m_can_navigate_back;
     bool m_can_navigate_forward;
 }
+
+@property (nonatomic, strong) Tab* parent;
 
 @property (nonatomic, strong) NSToolbar* toolbar;
 @property (nonatomic, strong) NSArray* toolbar_identifiers;
@@ -92,9 +96,30 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
         [self.toolbar setAllowsUserCustomization:NO];
         [self.toolbar setSizeMode:NSToolbarSizeModeRegular];
 
-        m_settings = { .block_popups = WebView::Application::chrome_options().allow_popups == WebView::AllowPopups::Yes ? NO : YES };
+        m_page_index = 0;
+
+        m_settings = {
+            .scripting_enabled = WebView::Application::chrome_options().disable_scripting == WebView::DisableScripting::Yes ? NO : YES,
+            .block_popups = WebView::Application::chrome_options().allow_popups == WebView::AllowPopups::Yes ? NO : YES,
+            .autoplay_enabled = WebView::Application::web_content_options().enable_autoplay == WebView::EnableAutoplay::Yes ? YES : NO,
+        };
+
+        if (auto const& user_agent_preset = WebView::Application::web_content_options().user_agent_preset; user_agent_preset.has_value())
+            m_settings.user_agent_name = *user_agent_preset;
+
         m_can_navigate_back = false;
         m_can_navigate_forward = false;
+    }
+
+    return self;
+}
+
+- (instancetype)initAsChild:(Tab*)parent
+                  pageIndex:(u64)page_index
+{
+    if (self = [self init]) {
+        self.parent = parent;
+        m_page_index = page_index;
     }
 
     return self;
@@ -133,6 +158,13 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
 - (void)onTitleChange:(ByteString const&)title
 {
     m_title = title;
+}
+
+- (void)onCreateNewTab
+{
+    [self setPopupBlocking:m_settings.block_popups];
+    [self setScripting:m_settings.scripting_enabled];
+    [self setAutoplay:m_settings.autoplay_enabled];
 }
 
 - (void)zoomIn:(id)sender
@@ -201,7 +233,7 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
 
     self.tab.titlebarAppearsTransparent = NO;
 
-    [delegate createNewTab:OptionalNone {}
+    [delegate createNewTab:WebView::Application::chrome_options().new_tab_page_url
                    fromTab:[self tab]
                activateTab:Web::HTML::ActivateTab::Yes];
 
@@ -338,13 +370,34 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
 - (void)toggleScripting:(id)sender
 {
     m_settings.scripting_enabled = !m_settings.scripting_enabled;
-    [self debugRequest:"scripting" argument:m_settings.scripting_enabled ? "on" : "off"];
+    [self setScripting:m_settings.scripting_enabled];
+}
+
+- (void)setScripting:(BOOL)enabled
+{
+    [self debugRequest:"scripting" argument:enabled ? "on" : "off"];
 }
 
 - (void)togglePopupBlocking:(id)sender
 {
     m_settings.block_popups = !m_settings.block_popups;
-    [self debugRequest:"block-pop-ups" argument:m_settings.block_popups ? "on" : "off"];
+    [self setPopupBlocking:m_settings.block_popups];
+}
+
+- (void)setPopupBlocking:(BOOL)block_popups
+{
+    [self debugRequest:"block-pop-ups" argument:block_popups ? "on" : "off"];
+}
+
+- (void)toggleAutoplay:(id)sender
+{
+    m_settings.autoplay_enabled = !m_settings.autoplay_enabled;
+    [self setAutoplay:m_settings.autoplay_enabled];
+}
+
+- (void)setAutoplay:(BOOL)enabled
+{
+    [[[self tab] web_view] setEnableAutoplay:m_settings.autoplay_enabled];
 }
 
 - (void)toggleSameOriginPolicy:(id)sender
@@ -521,7 +574,10 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
 
 - (IBAction)showWindow:(id)sender
 {
-    self.window = [[Tab alloc] init];
+    self.window = self.parent
+        ? [[Tab alloc] initAsChild:self.parent pageIndex:m_page_index]
+        : [[Tab alloc] init];
+
     [self.window setDelegate:self];
 
     [self.window setToolbar:self.toolbar];
@@ -551,6 +607,12 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
     [delegate removeTab:self];
 }
 
+- (void)windowDidMove:(NSNotification*)notification
+{
+    auto position = Ladybird::ns_point_to_gfx_point([[self tab] frame].origin);
+    [[[self tab] web_view] setWindowPosition:position];
+}
+
 - (void)windowDidResize:(NSNotification*)notification
 {
     if (self.location_toolbar_item_width != nil) {
@@ -564,6 +626,9 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
     if (![[self window] inLiveResize]) {
         [[[self tab] web_view] handleResize];
     }
+
+    auto size = Ladybird::ns_size_to_gfx_size([[self tab] frame].size);
+    [[[self tab] web_view] setWindowSize:size];
 }
 
 - (void)windowDidChangeBackingProperties:(NSNotification*)notification
@@ -585,6 +650,8 @@ static NSString* const TOOLBAR_TAB_OVERVIEW_IDENTIFIER = @"ToolbarTabOverviewIde
         [item setState:(m_settings.user_agent_name == [[item title] UTF8String]) ? NSControlStateValueOn : NSControlStateValueOff];
     } else if ([item action] == @selector(setNavigatorCompatibilityMode:)) {
         [item setState:(m_settings.navigator_compatibility_mode == [[[item title] lowercaseString] UTF8String]) ? NSControlStateValueOn : NSControlStateValueOff];
+    } else if ([item action] == @selector(toggleAutoplay:)) {
+        [item setState:m_settings.autoplay_enabled ? NSControlStateValueOn : NSControlStateValueOff];
     }
 
     return YES;

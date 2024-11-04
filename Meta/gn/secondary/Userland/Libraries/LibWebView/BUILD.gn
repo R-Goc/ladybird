@@ -1,7 +1,7 @@
 import("//Meta/gn/build/compiled_action.gni")
 import("//Meta/gn/build/download_cache.gni")
 import("//Meta/gn/build/download_file.gni")
-import("//Meta/gn/build/embed_as_string_view.gni")
+import("//Meta/gn/build/embed_as_string.gni")
 
 declare_args() {
   # If true, Download public suffix list from GitHub.
@@ -106,7 +106,7 @@ compiled_action("UIProcessServerEndpoint") {
   ]
 }
 
-embed_as_string_view("generate_native_stylesheet_source") {
+embed_as_string("generate_native_stylesheet_source") {
   input = "Native.css"
   output = "$target_gen_dir/NativeStyleSheetSource.cpp"
   variable_name = "native_stylesheet_source"
@@ -130,31 +130,35 @@ shared_library("LibWebView") {
     ":WebDriverServerEndpoint",
     ":generate_native_stylesheet_source",
     "//AK",
+    "//Meta/gn/build/libs/sqlite3",
     "//Userland/Libraries/LibCore",
     "//Userland/Libraries/LibFileSystem",
     "//Userland/Libraries/LibGfx",
     "//Userland/Libraries/LibIPC",
+    "//Userland/Libraries/LibImageDecoderClient",
     "//Userland/Libraries/LibJS",
-    "//Userland/Libraries/LibProtocol",
+    "//Userland/Libraries/LibRequests",
+    "//Userland/Libraries/LibSyntax",
     "//Userland/Libraries/LibURL",
+    "//Userland/Libraries/LibUnicode",
     "//Userland/Libraries/LibWeb",
   ]
   sources = [
+    "Application.cpp",
     "Attribute.cpp",
     "ChromeProcess.cpp",
     "CookieJar.cpp",
     "Database.cpp",
     "InspectorClient.cpp",
+    "Process.cpp",
     "ProcessHandle.cpp",
     "ProcessManager.cpp",
-    "RequestServerAdapter.cpp",
     "SearchEngine.cpp",
     "SourceHighlighter.cpp",
     "URL.cpp",
     "UserAgent.cpp",
     "ViewImplementation.cpp",
     "WebContentClient.cpp",
-    "WebSocketClientAdapter.cpp",
   ]
   sources += get_target_outputs(":WebContentClientEndpoint") +
              get_target_outputs(":WebContentServerEndpoint") +

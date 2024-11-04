@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2022-2023, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2023, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -22,14 +22,12 @@
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/Font/FontDatabase.h>
 #include <LibGfx/ImageFormats/PNGWriter.h>
-#include <LibGfx/Painter.h>
 #include <LibGfx/Palette.h>
 #include <LibGfx/Rect.h>
 #include <LibGfx/SystemTheme.h>
 #include <LibWeb/Crypto/Crypto.h>
 #include <LibWeb/UIEvents/KeyCode.h>
 #include <LibWeb/UIEvents/MouseButton.h>
-#include <LibWeb/Worker/WebWorkerClient.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/WebContentClient.h>
 #include <QApplication>
@@ -130,62 +128,110 @@ WebContentView::WebContentView(QWidget* window, RefPtr<WebView::WebContentClient
         finish_handling_key_event(event);
     };
 
-    on_request_worker_agent = [&]() {
-        RefPtr<Protocol::RequestClient> request_server_client {};
-        if (WebView::Application::web_content_options().use_lagom_networking == WebView::UseLagomNetworking::Yes)
-            request_server_client = static_cast<Ladybird::Application*>(QApplication::instance())->request_server_client;
+    on_finish_handling_drag_event = [this](auto const& event) {
+        finish_handling_drag_event(event);
+    };
 
-        auto worker_client = MUST(launch_web_worker_process(MUST(get_paths_for_helper_process("WebWorker"sv)), request_server_client));
-        return worker_client->dup_socket();
+    on_request_worker_agent = [&]() {
+        auto& request_server_client = static_cast<Ladybird::Application*>(QApplication::instance())->request_server_client;
+        auto worker_client = MUST(launch_web_worker_process(MUST(get_paths_for_helper_process("WebWorker"sv)), *request_server_client));
+        return worker_client->clone_transport();
+    };
+
+    m_select_dropdown = new QMenu("Select Dropdown", this);
+    QObject::connect(m_select_dropdown, &QMenu::aboutToHide, this, [this]() {
+        if (!m_select_dropdown->activeAction())
+            select_dropdown_closed({});
+    });
+
+    on_request_select_dropdown = [this](Gfx::IntPoint content_position, i32 minimum_width, Vector<Web::HTML::SelectItem> items) {
+        m_select_dropdown->clear();
+        m_select_dropdown->setMinimumWidth(minimum_width / device_pixel_ratio());
+
+        auto add_menu_item = [this](Web::HTML::SelectItemOption const& item_option, bool in_option_group) {
+            QAction* action = new QAction(qstring_from_ak_string(in_option_group ? MUST(String::formatted("    {}", item_option.label)) : item_option.label), this);
+            action->setCheckable(true);
+            action->setChecked(item_option.selected);
+            action->setDisabled(item_option.disabled);
+            action->setData(QVariant(static_cast<uint>(item_option.id)));
+            QObject::connect(action, &QAction::triggered, this, &WebContentView::select_dropdown_action);
+            m_select_dropdown->addAction(action);
+        };
+
+        for (auto const& item : items) {
+            if (item.has<Web::HTML::SelectItemOptionGroup>()) {
+                auto const& item_option_group = item.get<Web::HTML::SelectItemOptionGroup>();
+                QAction* subtitle = new QAction(qstring_from_ak_string(item_option_group.label), this);
+                subtitle->setDisabled(true);
+                m_select_dropdown->addAction(subtitle);
+
+                for (auto const& item_option : item_option_group.items)
+                    add_menu_item(item_option, true);
+            }
+
+            if (item.has<Web::HTML::SelectItemOption>())
+                add_menu_item(item.get<Web::HTML::SelectItemOption>(), false);
+
+            if (item.has<Web::HTML::SelectItemSeparator>())
+                m_select_dropdown->addSeparator();
+        }
+
+        m_select_dropdown->exec(map_point_to_global_position(content_position));
     };
 }
 
 WebContentView::~WebContentView() = default;
 
-static Web::UIEvents::MouseButton get_button_from_qt_event(QSinglePointEvent const& event)
+void WebContentView::select_dropdown_action()
 {
-    if (event.button() == Qt::MouseButton::LeftButton)
+    QAction* action = qobject_cast<QAction*>(sender());
+    select_dropdown_closed(action->data().value<uint>());
+}
+
+static Web::UIEvents::MouseButton get_button_from_qt_mouse_button(Qt::MouseButton button)
+{
+    if (button == Qt::MouseButton::LeftButton)
         return Web::UIEvents::MouseButton::Primary;
-    if (event.button() == Qt::MouseButton::RightButton)
+    if (button == Qt::MouseButton::RightButton)
         return Web::UIEvents::MouseButton::Secondary;
-    if (event.button() == Qt::MouseButton::MiddleButton)
+    if (button == Qt::MouseButton::MiddleButton)
         return Web::UIEvents::MouseButton::Middle;
-    if (event.button() == Qt::MouseButton::BackButton)
+    if (button == Qt::MouseButton::BackButton)
         return Web::UIEvents::MouseButton::Backward;
-    if (event.buttons() == Qt::MouseButton::ForwardButton)
+    if (button == Qt::MouseButton::ForwardButton)
         return Web::UIEvents::MouseButton::Forward;
     return Web::UIEvents::MouseButton::None;
 }
 
-static Web::UIEvents::MouseButton get_buttons_from_qt_event(QSinglePointEvent const& event)
+static Web::UIEvents::MouseButton get_buttons_from_qt_mouse_buttons(Qt::MouseButtons buttons)
 {
-    auto buttons = Web::UIEvents::MouseButton::None;
-    if (event.buttons().testFlag(Qt::MouseButton::LeftButton))
-        buttons |= Web::UIEvents::MouseButton::Primary;
-    if (event.buttons().testFlag(Qt::MouseButton::RightButton))
-        buttons |= Web::UIEvents::MouseButton::Secondary;
-    if (event.buttons().testFlag(Qt::MouseButton::MiddleButton))
-        buttons |= Web::UIEvents::MouseButton::Middle;
-    if (event.buttons().testFlag(Qt::MouseButton::BackButton))
-        buttons |= Web::UIEvents::MouseButton::Backward;
-    if (event.buttons().testFlag(Qt::MouseButton::ForwardButton))
-        buttons |= Web::UIEvents::MouseButton::Forward;
-    return buttons;
+    auto result = Web::UIEvents::MouseButton::None;
+    if (buttons.testFlag(Qt::MouseButton::LeftButton))
+        result |= Web::UIEvents::MouseButton::Primary;
+    if (buttons.testFlag(Qt::MouseButton::RightButton))
+        result |= Web::UIEvents::MouseButton::Secondary;
+    if (buttons.testFlag(Qt::MouseButton::MiddleButton))
+        result |= Web::UIEvents::MouseButton::Middle;
+    if (buttons.testFlag(Qt::MouseButton::BackButton))
+        result |= Web::UIEvents::MouseButton::Backward;
+    if (buttons.testFlag(Qt::MouseButton::ForwardButton))
+        result |= Web::UIEvents::MouseButton::Forward;
+    return result;
 }
 
-static Web::UIEvents::KeyModifier get_modifiers_from_qt_mouse_event(QSinglePointEvent const& event)
+static Web::UIEvents::KeyModifier get_modifiers_from_qt_keyboard_modifiers(Qt::KeyboardModifiers modifiers)
 {
-    auto modifiers = Web::UIEvents::KeyModifier::Mod_None;
-    if (event.modifiers().testFlag(Qt::AltModifier))
-        modifiers |= Web::UIEvents::KeyModifier::Mod_Alt;
-    if (event.modifiers().testFlag(Qt::ControlModifier))
-        modifiers |= Web::UIEvents::KeyModifier::Mod_Ctrl;
-    if (event.modifiers().testFlag(Qt::ShiftModifier))
-        modifiers |= Web::UIEvents::KeyModifier::Mod_Shift;
-    return modifiers;
+    auto result = Web::UIEvents::KeyModifier::Mod_None;
+    if (modifiers.testFlag(Qt::AltModifier))
+        result |= Web::UIEvents::KeyModifier::Mod_Alt;
+    if (modifiers.testFlag(Qt::ControlModifier))
+        result |= Web::UIEvents::KeyModifier::Mod_Ctrl;
+    if (modifiers.testFlag(Qt::ShiftModifier))
+        result |= Web::UIEvents::KeyModifier::Mod_Shift;
+    return result;
 }
 
-static Web::UIEvents::KeyModifier get_modifiers_from_qt_keyboard_event(QKeyEvent const& event)
+static Web::UIEvents::KeyModifier get_modifiers_from_qt_key_event(QKeyEvent const& event)
 {
     auto modifiers = Web::UIEvents::KeyModifier::Mod_None;
     if (event.modifiers().testFlag(Qt::AltModifier))
@@ -196,14 +242,12 @@ static Web::UIEvents::KeyModifier get_modifiers_from_qt_keyboard_event(QKeyEvent
         modifiers |= Web::UIEvents::KeyModifier::Mod_Super;
     if (event.modifiers().testFlag(Qt::ShiftModifier))
         modifiers |= Web::UIEvents::KeyModifier::Mod_Shift;
-    if (event.modifiers().testFlag(Qt::AltModifier))
-        modifiers |= Web::UIEvents::KeyModifier::Mod_AltGr;
     if (event.modifiers().testFlag(Qt::KeypadModifier))
         modifiers |= Web::UIEvents::KeyModifier::Mod_Keypad;
     return modifiers;
 }
 
-static Web::UIEvents::KeyCode get_keycode_from_qt_keyboard_event(QKeyEvent const& event)
+static Web::UIEvents::KeyCode get_keycode_from_qt_key_event(QKeyEvent const& event)
 {
     struct Mapping {
         constexpr Mapping(Qt::Key q, Web::UIEvents::KeyCode s)
@@ -216,8 +260,12 @@ static Web::UIEvents::KeyCode get_keycode_from_qt_keyboard_event(QKeyEvent const
         Web::UIEvents::KeyCode serenity_key;
     };
 
+    // FIXME: Qt does not differentiate between left-and-right modifier keys. Unfortunately, it seems like we would have
+    //        to inspect event.nativeScanCode() / event.nativeVirtualKey() to do so, which has platform-dependent values.
+    //        For now, we default to left keys.
+
     // https://doc.qt.io/qt-6/qt.html#Key-enum
-    constexpr Mapping mappings[] = {
+    static constexpr Mapping mappings[] = {
         { Qt::Key_0, Web::UIEvents::Key_0 },
         { Qt::Key_1, Web::UIEvents::Key_1 },
         { Qt::Key_2, Web::UIEvents::Key_2 },
@@ -229,7 +277,7 @@ static Web::UIEvents::KeyCode get_keycode_from_qt_keyboard_event(QKeyEvent const
         { Qt::Key_8, Web::UIEvents::Key_8 },
         { Qt::Key_9, Web::UIEvents::Key_9 },
         { Qt::Key_A, Web::UIEvents::Key_A },
-        { Qt::Key_Alt, Web::UIEvents::Key_Alt },
+        { Qt::Key_Alt, Web::UIEvents::Key_LeftAlt },
         { Qt::Key_Ampersand, Web::UIEvents::Key_Ampersand },
         { Qt::Key_Apostrophe, Web::UIEvents::Key_Apostrophe },
         { Qt::Key_AsciiCircum, Web::UIEvents::Key_Circumflex },
@@ -248,7 +296,7 @@ static Web::UIEvents::KeyCode get_keycode_from_qt_keyboard_event(QKeyEvent const
         { Qt::Key_CapsLock, Web::UIEvents::Key_CapsLock },
         { Qt::Key_Colon, Web::UIEvents::Key_Colon },
         { Qt::Key_Comma, Web::UIEvents::Key_Comma },
-        { Qt::Key_Control, Web::UIEvents::Key_Control },
+        { Qt::Key_Control, Web::UIEvents::Key_LeftControl },
         { Qt::Key_D, Web::UIEvents::Key_D },
         { Qt::Key_Delete, Web::UIEvents::Key_Delete },
         { Qt::Key_Dollar, Web::UIEvents::Key_Dollar },
@@ -286,7 +334,7 @@ static Web::UIEvents::KeyCode get_keycode_from_qt_keyboard_event(QKeyEvent const
         { Qt::Key_Less, Web::UIEvents::Key_LessThan },
         { Qt::Key_M, Web::UIEvents::Key_M },
         { Qt::Key_Menu, Web::UIEvents::Key_Menu },
-        { Qt::Key_Meta, Web::UIEvents::Key_Super },
+        { Qt::Key_Meta, Web::UIEvents::Key_LeftSuper },
         { Qt::Key_Minus, Web::UIEvents::Key_Minus },
         { Qt::Key_N, Web::UIEvents::Key_N },
         { Qt::Key_NumberSign, Web::UIEvents::Key_Hashtag },
@@ -314,8 +362,8 @@ static Web::UIEvents::KeyCode get_keycode_from_qt_keyboard_event(QKeyEvent const
         { Qt::Key_Shift, Web::UIEvents::Key_LeftShift },
         { Qt::Key_Slash, Web::UIEvents::Key_Slash },
         { Qt::Key_Space, Web::UIEvents::Key_Space },
-        { Qt::Key_Super_L, Web::UIEvents::Key_Super },
-        { Qt::Key_Super_R, Web::UIEvents::Key_Super },
+        { Qt::Key_Super_L, Web::UIEvents::Key_LeftSuper },
+        { Qt::Key_Super_R, Web::UIEvents::Key_RightSuper },
         { Qt::Key_SysReq, Web::UIEvents::Key_SysRq },
         { Qt::Key_T, Web::UIEvents::Key_T },
         { Qt::Key_Tab, Web::UIEvents::Key_Tab },
@@ -380,13 +428,10 @@ void WebContentView::mouseReleaseEvent(QMouseEvent* event)
 {
     enqueue_native_event(Web::MouseEvent::Type::MouseUp, *event);
 
-    if (event->button() == Qt::MouseButton::BackButton) {
-        if (on_navigate_back)
-            on_navigate_back();
-    } else if (event->button() == Qt::MouseButton::ForwardButton) {
-        if (on_navigate_forward)
-            on_navigate_forward();
-    }
+    if (event->button() == Qt::MouseButton::BackButton)
+        traverse_the_history_by_delta(-1);
+    else if (event->button() == Qt::MouseButton::ForwardButton)
+        traverse_the_history_by_delta(1);
 }
 
 void WebContentView::wheelEvent(QWheelEvent* event)
@@ -406,14 +451,31 @@ void WebContentView::mouseDoubleClickEvent(QMouseEvent* event)
 
 void WebContentView::dragEnterEvent(QDragEnterEvent* event)
 {
-    if (event->mimeData()->hasUrls())
-        event->acceptProposedAction();
+    if (!event->mimeData()->hasUrls())
+        return;
+
+    enqueue_native_event(Web::DragEvent::Type::DragStart, *event);
+    event->acceptProposedAction();
+}
+
+void WebContentView::dragMoveEvent(QDragMoveEvent* event)
+{
+    enqueue_native_event(Web::DragEvent::Type::DragMove, *event);
+    event->acceptProposedAction();
+}
+
+void WebContentView::dragLeaveEvent(QDragLeaveEvent*)
+{
+    // QDragLeaveEvent does not contain any mouse position or button information.
+    Web::DragEvent event {};
+    event.type = Web::DragEvent::Type::DragEnd;
+
+    enqueue_input_event(AK::move(event));
 }
 
 void WebContentView::dropEvent(QDropEvent* event)
 {
-    VERIFY(event->mimeData()->hasUrls());
-    emit urls_dropped(event->mimeData()->urls());
+    enqueue_native_event(Web::DragEvent::Type::Drop, *event);
     event->acceptProposedAction();
 }
 
@@ -472,16 +534,6 @@ void WebContentView::set_viewport_rect(Gfx::IntRect rect)
 {
     m_viewport_size = rect.size();
     client().async_set_viewport_size(m_client_state.page_index, rect.size().to_type<Web::DevicePixels>());
-}
-
-void WebContentView::set_window_size(Gfx::IntSize size)
-{
-    client().async_set_window_size(m_client_state.page_index, size.to_type<Web::DevicePixels>());
-}
-
-void WebContentView::set_window_position(Gfx::IntPoint position)
-{
-    client().async_set_window_position(m_client_state.page_index, position.to_type<Web::DevicePixels>());
 }
 
 void WebContentView::set_device_pixel_ratio(double device_pixel_ratio)
@@ -582,14 +634,10 @@ void WebContentView::initialize_client(WebView::ViewImplementation::CreateNewCli
     if (create_new_client == CreateNewClient::Yes) {
         m_client_state = {};
 
-        Optional<IPC::File> request_server_socket;
-        if (WebView::Application::web_content_options().use_lagom_networking == WebView::UseLagomNetworking::Yes) {
-            auto& protocol = static_cast<Ladybird::Application*>(QApplication::instance())->request_server_client;
+        auto& request_server_client = static_cast<Ladybird::Application*>(QApplication::instance())->request_server_client;
 
-            // FIXME: Fail to open the tab, rather than crashing the whole application if this fails
-            auto socket = connect_new_request_server_client(*protocol).release_value_but_fixme_should_propagate_errors();
-            request_server_socket = AK::move(socket);
-        }
+        // FIXME: Fail to open the tab, rather than crashing the whole application if this fails
+        auto request_server_socket = connect_new_request_server_client(*request_server_client).release_value_but_fixme_should_propagate_errors();
 
         auto image_decoder = static_cast<Ladybird::Application*>(QApplication::instance())->image_decoder_client();
         auto image_decoder_socket = connect_new_image_decoder_client(*image_decoder).release_value_but_fixme_should_propagate_errors();
@@ -730,19 +778,14 @@ bool WebContentView::event(QEvent* event)
     return QAbstractScrollArea::event(event);
 }
 
-ErrorOr<String> WebContentView::dump_layout_tree()
-{
-    return String::from_byte_string(client().dump_layout_tree(m_client_state.page_index));
-}
-
 void WebContentView::enqueue_native_event(Web::MouseEvent::Type type, QSinglePointEvent const& event)
 {
     Web::DevicePixelPoint position = { event.position().x() * m_device_pixel_ratio, event.position().y() * m_device_pixel_ratio };
     auto screen_position = Gfx::IntPoint { event.globalPosition().x() * m_device_pixel_ratio, event.globalPosition().y() * m_device_pixel_ratio };
 
-    auto button = get_button_from_qt_event(event);
-    auto buttons = get_buttons_from_qt_event(event);
-    auto modifiers = get_modifiers_from_qt_mouse_event(event);
+    auto button = get_button_from_qt_mouse_button(event.button());
+    auto buttons = get_buttons_from_qt_mouse_buttons(event.buttons());
+    auto modifiers = get_modifiers_from_qt_keyboard_modifiers(event.modifiers());
 
     if (button == 0 && (type == Web::MouseEvent::Type::MouseDown || type == Web::MouseEvent::Type::MouseUp)) {
         // We could not convert Qt buttons to something that LibWeb can recognize - don't even bother propagating this
@@ -776,6 +819,56 @@ void WebContentView::enqueue_native_event(Web::MouseEvent::Type type, QSinglePoi
     enqueue_input_event(Web::MouseEvent { type, position, screen_position.to_type<Web::DevicePixels>(), button, buttons, modifiers, wheel_delta_x, wheel_delta_y, nullptr });
 }
 
+struct DragData : Web::ChromeInputData {
+    explicit DragData(QDropEvent const& event)
+        : urls(event.mimeData()->urls())
+    {
+    }
+
+    QList<QUrl> urls;
+};
+
+void WebContentView::enqueue_native_event(Web::DragEvent::Type type, QDropEvent const& event)
+{
+    Web::DevicePixelPoint position = { event.position().x() * m_device_pixel_ratio, event.position().y() * m_device_pixel_ratio };
+
+    auto global_position = mapToGlobal(event.position());
+    auto screen_position = Gfx::IntPoint { global_position.x() * m_device_pixel_ratio, global_position.y() * m_device_pixel_ratio };
+
+    auto button = get_button_from_qt_mouse_button(Qt::LeftButton);
+    auto buttons = get_buttons_from_qt_mouse_buttons(event.buttons());
+    auto modifiers = get_modifiers_from_qt_keyboard_modifiers(event.modifiers());
+
+    Vector<Web::HTML::SelectedFile> files;
+    OwnPtr<DragData> chrome_data;
+
+    if (type == Web::DragEvent::Type::DragStart) {
+        VERIFY(event.mimeData()->hasUrls());
+
+        for (auto const& url : event.mimeData()->urls()) {
+            auto file_path = ak_byte_string_from_qstring(url.toLocalFile());
+
+            if (auto file = Web::HTML::SelectedFile::from_file_path(file_path); file.is_error())
+                warnln("Unable to open file {}: {}", file_path, file.error());
+            else
+                files.append(file.release_value());
+        }
+    } else if (type == Web::DragEvent::Type::Drop) {
+        chrome_data = make<DragData>(event);
+    }
+
+    enqueue_input_event(Web::DragEvent { type, position, screen_position.to_type<Web::DevicePixels>(), button, buttons, modifiers, AK::move(files), AK::move(chrome_data) });
+}
+
+void WebContentView::finish_handling_drag_event(Web::DragEvent const& event)
+{
+    if (event.type != Web::DragEvent::Type::Drop)
+        return;
+
+    auto const& chrome_data = verify_cast<DragData>(*event.chrome_data);
+    emit urls_dropped(chrome_data.urls);
+}
+
 struct KeyData : Web::ChromeInputData {
     explicit KeyData(QKeyEvent const& event)
         : event(adopt_own(*event.clone()))
@@ -787,8 +880,8 @@ struct KeyData : Web::ChromeInputData {
 
 void WebContentView::enqueue_native_event(Web::KeyEvent::Type type, QKeyEvent const& event)
 {
-    auto keycode = get_keycode_from_qt_keyboard_event(event);
-    auto modifiers = get_modifiers_from_qt_keyboard_event(event);
+    auto keycode = get_keycode_from_qt_key_event(event);
+    auto modifiers = get_modifiers_from_qt_key_event(event);
 
     auto text = event.text();
     auto code_point = text.isEmpty() ? 0u : event.text()[0].unicode();
@@ -796,15 +889,15 @@ void WebContentView::enqueue_native_event(Web::KeyEvent::Type type, QKeyEvent co
     auto to_web_event = [&]() -> Web::KeyEvent {
         if (event.key() == Qt::Key_Backtab) {
             // Qt transforms Shift+Tab into a "Backtab", so we undo that transformation here.
-            return { type, Web::UIEvents::KeyCode::Key_Tab, Web::UIEvents::Mod_Shift, '\t', make<KeyData>(event) };
+            return { type, Web::UIEvents::KeyCode::Key_Tab, Web::UIEvents::Mod_Shift, '\t', event.isAutoRepeat(), make<KeyData>(event) };
         }
 
         if (event.key() == Qt::Key_Enter || event.key() == Qt::Key_Return) {
             // This ensures consistent behavior between systems that treat Enter as '\n' and '\r\n'
-            return { type, Web::UIEvents::KeyCode::Key_Return, Web::UIEvents::Mod_Shift, '\n', make<KeyData>(event) };
+            return { type, Web::UIEvents::KeyCode::Key_Return, Web::UIEvents::Mod_Shift, '\n', event.isAutoRepeat(), make<KeyData>(event) };
         }
 
-        return { type, keycode, modifiers, code_point, make<KeyData>(event) };
+        return { type, keycode, modifiers, code_point, event.isAutoRepeat(), make<KeyData>(event) };
     };
 
     enqueue_input_event(to_web_event());

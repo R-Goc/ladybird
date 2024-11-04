@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021-2022, Linus Groh <linusg@serenityos.org>
  * Copyright (c) 2022, Sam Atkins <atkinssj@serenityos.org>
  *
@@ -9,7 +9,9 @@
 #pragma once
 
 #include <AK/Debug.h>
+#include <LibGfx/Painter.h>
 #include <LibWeb/Geometry/DOMMatrix.h>
+#include <LibWeb/HTML/Canvas/CanvasPath.h>
 #include <LibWeb/HTML/Canvas/CanvasState.h>
 
 namespace Web::HTML {
@@ -20,23 +22,36 @@ class CanvasTransform {
 public:
     ~CanvasTransform() = default;
 
+    Gfx::Path& mutable_path() { return static_cast<IncludingClass&>(*this).path(); }
+
     void scale(float sx, float sy)
     {
         dbgln_if(CANVAS_RENDERING_CONTEXT_2D_DEBUG, "CanvasTransform::scale({}, {})", sx, sy);
-
+        if (!isfinite(sx) || !isfinite(sy))
+            return;
         my_drawing_state().transform.scale(sx, sy);
+        flush_transform();
+        mutable_path().transform(Gfx::AffineTransform().scale(1.0 / sx, 1.0 / sy));
     }
 
     void translate(float tx, float ty)
     {
         dbgln_if(CANVAS_RENDERING_CONTEXT_2D_DEBUG, "CanvasTransform::translate({}, {})", tx, ty);
+        if (!isfinite(tx) || !isfinite(ty))
+            return;
         my_drawing_state().transform.translate(tx, ty);
+        flush_transform();
+        mutable_path().transform(Gfx::AffineTransform().translate(-tx, -ty));
     }
 
     void rotate(float radians)
     {
         dbgln_if(CANVAS_RENDERING_CONTEXT_2D_DEBUG, "CanvasTransform::rotate({})", radians);
+        if (!isfinite(radians))
+            return;
         my_drawing_state().transform.rotate_radians(radians);
+        flush_transform();
+        mutable_path().transform(Gfx::AffineTransform().rotate_radians(-radians));
     }
 
     // https://html.spec.whatwg.org/multipage/canvas.html#dom-context-2d-transform
@@ -50,7 +65,13 @@ public:
         //    a c e
         //    b d f
         //    0 0 1
-        my_drawing_state().transform.multiply({ static_cast<float>(a), static_cast<float>(b), static_cast<float>(c), static_cast<float>(d), static_cast<float>(e), static_cast<float>(f) });
+        auto transform = Gfx::AffineTransform(a, b, c, d, e, f);
+        my_drawing_state().transform.multiply(transform);
+
+        if (auto inverse = transform.inverse(); inverse.has_value()) {
+            mutable_path().transform(inverse.value());
+        }
+        flush_transform();
     }
 
     // https://html.spec.whatwg.org/multipage/canvas.html#dom-context-2d-gettransform
@@ -71,6 +92,7 @@ public:
 
         // 2. Reset the current transformation matrix to the identity matrix.
         my_drawing_state().transform = {};
+        flush_transform();
 
         // 3. Invoke the transform(a, b, c, d, e, f) method with the same arguments.
         transform(a, b, c, d, e, f);
@@ -87,8 +109,15 @@ public:
         if (!isfinite(matrix->m11()) || !isfinite(matrix->m12()) || !isfinite(matrix->m21()) || !isfinite(matrix->m22()) || !isfinite(matrix->m41()) || !isfinite(matrix->m42()))
             return {};
 
+        auto original_transform = my_drawing_state().transform;
+
         // 3. Reset the current transformation matrix to matrix.
-        my_drawing_state().transform = { static_cast<float>(matrix->a()), static_cast<float>(matrix->b()), static_cast<float>(matrix->c()), static_cast<float>(matrix->d()), static_cast<float>(matrix->e()), static_cast<float>(matrix->f()) };
+        auto transform = Gfx::AffineTransform { static_cast<float>(matrix->a()), static_cast<float>(matrix->b()), static_cast<float>(matrix->c()), static_cast<float>(matrix->d()), static_cast<float>(matrix->e()), static_cast<float>(matrix->f()) };
+        my_drawing_state().transform = transform;
+
+        mutable_path().transform(original_transform);
+
+        flush_transform();
         return {};
     }
 
@@ -97,6 +126,13 @@ public:
     {
         // The resetTransform() method, when invoked, must reset the current transformation matrix to the identity matrix.
         my_drawing_state().transform = {};
+        flush_transform();
+    }
+
+    void flush_transform()
+    {
+        if (auto* painter = static_cast<IncludingClass&>(*this).painter())
+            painter->set_transform(my_drawing_state().transform);
     }
 
 protected:

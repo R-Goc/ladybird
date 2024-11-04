@@ -26,7 +26,6 @@ set(AK_TEST_SOURCES
     TestFind.cpp
     TestFixedArray.cpp
     TestFixedPoint.cpp
-    TestFloatingPoint.cpp
     TestFloatingPointParsing.cpp
     TestFlyString.cpp
     TestFormat.cpp
@@ -91,3 +90,12 @@ foreach(source IN LISTS AK_TEST_SOURCES)
 endforeach()
 
 target_link_libraries(TestString PRIVATE LibUnicode)
+
+if (ENABLE_SWIFT)
+
+    # FIXME: Convert to use swift-testing after resolving https://github.com/LadybirdBrowser/ladybird/issues/1201
+    add_executable(TestAKBindings TestAKBindings.swift)
+    target_link_libraries(TestAKBindings PRIVATE AK)
+    target_compile_options(TestAKBindings PRIVATE -parse-as-library)
+    add_test(NAME TestAKBindings COMMAND TestAKBindings)
+endif()

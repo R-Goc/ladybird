@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022-2023, MacDue <macdue@dueutil.tech>
@@ -126,9 +126,9 @@ double EasingStyleValue::Function::evaluate_at(double input_progress, bool befor
 
             size_t nearby_index = 0;
             if (auto found = binary_search(cached_x_samples, x, &nearby_index, [](auto x, auto& sample) {
-                    if (x > sample.x)
+                    if (x - sample.x >= NumericLimits<double>::epsilon())
                         return 1;
-                    if (x < sample.x)
+                    if (x - sample.x <= NumericLimits<double>::epsilon())
                         return -1;
                     return 0;
                 }))
@@ -146,9 +146,9 @@ double EasingStyleValue::Function::evaluate_at(double input_progress, bool befor
                 }
 
                 if (auto found = binary_search(cached_x_samples, x, &nearby_index, [](auto x, auto& sample) {
-                        if (x > sample.x)
+                        if (x - sample.x >= NumericLimits<double>::epsilon())
                             return 1;
-                        if (x < sample.x)
+                        if (x - sample.x <= NumericLimits<double>::epsilon())
                             return -1;
                         return 0;
                     }))

@@ -91,12 +91,29 @@ const scrollToElement = element => {
     window.scrollTo(0, position);
 };
 
+inspector.exportInspector = () => {
+    const html = `<!DOCTYPE ${document.doctype.name}>\n${document.documentElement.outerHTML}`;
+    inspector.exportInspectorHTML(html);
+};
+
 inspector.reset = () => {
     let domTree = document.getElementById("dom-tree");
     domTree.innerHTML = "";
 
     let accessibilityTree = document.getElementById("accessibility-tree");
     accessibilityTree.innerHTML = "";
+
+    let cookieTable = document.getElementById("cookie-table");
+    cookieTable.innerHTML = "";
+
+    let styleSheetPicker = document.getElementById("style-sheet-picker");
+    styleSheetPicker.replaceChildren();
+
+    let styleSheetSource = document.getElementById("style-sheet-source");
+    styleSheetSource.innerHTML = "";
+
+    let fontsList = document.getElementById("fonts-list");
+    fontsList.innerHTML = "";
 
     selectedDOMNode = null;
     pendingEditDOMNode = null;
@@ -121,7 +138,14 @@ inspector.loadDOMTree = tree => {
 
     for (let domNode of domNodes) {
         domNode.addEventListener("dblclick", event => {
-            editDOMNode(domNode);
+            const type = domNode.dataset.nodeType;
+            const text = event.target.innerText;
+
+            if (type === "attribute" && event.target.classList.contains("attribute-value")) {
+                text = text.substring(1, text.length - 1);
+            }
+
+            editDOMNode(domNode, text);
             event.preventDefault();
         });
     }
@@ -185,6 +209,131 @@ inspector.addAttributeToDOMNodeID = nodeID => {
     addAttributeToDOMNode(pendingEditDOMNode);
 
     pendingEditDOMNode = null;
+};
+
+inspector.setCookies = cookies => {
+    let oldTable = document.getElementById("cookie-table");
+
+    let newTable = document.createElement("tbody");
+    newTable.setAttribute("id", oldTable.id);
+
+    const addColumn = (row, value) => {
+        let column = row.insertCell();
+        column.innerText = value;
+        column.title = value;
+    };
+
+    cookies
+        .sort((lhs, rhs) => lhs.name.localeCompare(rhs.name))
+        .forEach(cookie => {
+            let row = newTable.insertRow();
+
+            addColumn(row, cookie.name);
+            addColumn(row, cookie.value);
+            addColumn(row, cookie.domain);
+            addColumn(row, cookie.path);
+            addColumn(row, new Date(cookie.creationTime).toLocaleString());
+            addColumn(row, new Date(cookie.lastAccessTime).toLocaleString());
+            addColumn(row, new Date(cookie.expiryTime).toLocaleString());
+
+            row.addEventListener("contextmenu", event => {
+                inspector.requestCookieContextMenu(cookie.index, event.clientX, event.clientY);
+                event.preventDefault();
+            });
+        });
+
+    oldTable.parentNode.replaceChild(newTable, oldTable);
+};
+
+inspector.setStyleSheets = styleSheets => {
+    const styleSheetPicker = document.getElementById("style-sheet-picker");
+    const styleSheetSource = document.getElementById("style-sheet-source");
+    styleSheetPicker.replaceChildren();
+    styleSheetSource.innerHTML = "";
+
+    function addOption(styleSheet, text) {
+        const option = document.createElement("option");
+        option.innerText = text;
+        if (styleSheet.type) {
+            option.dataset["type"] = styleSheet.type;
+        }
+        if (styleSheet.domNodeId) {
+            option.dataset["domNodeId"] = styleSheet.domNodeId;
+        }
+        if (styleSheet.url) {
+            option.dataset["url"] = styleSheet.url;
+        }
+        styleSheetPicker.add(option);
+    }
+
+    if (styleSheets.length > 0) {
+        let styleElementIndex = 1;
+        for (const styleSheet of styleSheets) {
+            switch (styleSheet.type) {
+                case "StyleElement":
+                    addOption(styleSheet, `Style element #${styleElementIndex++}`);
+                    break;
+                case "LinkElement":
+                    addOption(styleSheet, styleSheet.url);
+                    break;
+                case "ImportRule":
+                    addOption(styleSheet, styleSheet.url);
+                    break;
+                case "UserAgent":
+                    addOption(styleSheet, `User agent: ${styleSheet.url}`);
+                    break;
+                case "UserStyle":
+                    addOption(styleSheet, "User style");
+                    break;
+            }
+        }
+        styleSheetPicker.disabled = false;
+    } else {
+        addOption({}, "No style sheets found");
+        styleSheetPicker.disabled = true;
+    }
+
+    styleSheetPicker.selectedIndex = 0;
+
+    if (!styleSheetPicker.disabled) {
+        loadStyleSheet();
+    }
+};
+
+const loadStyleSheet = () => {
+    const styleSheetPicker = document.getElementById("style-sheet-picker");
+    const styleSheetSource = document.getElementById("style-sheet-source");
+    const selectedOption = styleSheetPicker.selectedOptions[0];
+
+    styleSheetSource.innerHTML = "Loading...";
+    inspector.requestStyleSheetSource(
+        selectedOption.dataset["type"],
+        selectedOption.dataset["domNodeId"],
+        selectedOption.dataset["url"]
+    );
+};
+
+inspector.setStyleSheetSource = (identifier, sourceBase64) => {
+    const styleSheetPicker = document.getElementById("style-sheet-picker");
+    const styleSheetSource = document.getElementById("style-sheet-source");
+    const selectedOption = styleSheetPicker.selectedOptions[0];
+
+    // Make sure this is the source for the currently-selected style sheet.
+    // NOTE: These are != not !== intentionally.
+    if (
+        identifier.type != selectedOption.dataset["type"] ||
+        identifier.domNodeId != selectedOption.dataset["domNodeId"] ||
+        identifier.url != selectedOption.dataset["url"]
+    ) {
+        console.log(
+            JSON.stringify(identifier),
+            "doesn't match",
+            JSON.stringify(selectedOption.dataset)
+        );
+        return;
+    }
+
+    styleSheetSource.innerHTML = decodeBase64(sourceBase64);
 };
 
 inspector.createPropertyTables = (computedStyle, resolvedStyle, customProperties) => {
@@ -324,9 +473,6 @@ const createDOMEditor = (onHandleChange, onCancelChange) => {
 
     setTimeout(() => {
         input.focus();
-
-        // FIXME: Invoke `select` when it isn't just stubbed out.
-        // input.select();
     });
 
     return input;
@@ -339,7 +485,7 @@ const parseDOMAttributes = value => {
     return element.children[0].attributes;
 };
 
-const editDOMNode = domNode => {
+const editDOMNode = (domNode, textToSelect) => {
     if (selectedDOMNode === null) {
         return;
     }
@@ -376,6 +522,18 @@ const editDOMNode = domNode => {
     } else {
         editor.value = domNode.innerText;
     }
+
+    setTimeout(() => {
+        if (typeof textToSelect !== "undefined") {
+            const index = editor.value.indexOf(textToSelect);
+            if (index !== -1) {
+                editor.setSelectionRange(index, index + textToSelect.length);
+                return;
+            }
+        }
+
+        editor.select();
+    });
 
     domNode.parentNode.replaceChild(editor, domNode);
 };
@@ -609,30 +767,47 @@ document.addEventListener("DOMContentLoaded", () => {
     document.addEventListener("keydown", event => {
         const UP_ARROW_KEYCODE = 38;
         const DOWN_ARROW_KEYCODE = 40;
+        const RIGHT_ARROW_KEYCODE = 39;
+        const LEFT_ARROW_KEYCODE = 37;
         const RETURN_KEYCODE = 13;
         const SPACE_KEYCODE = 32;
 
+        const move = delta => {
+            let selectedIndex = visibleDOMNodes.indexOf(selectedDOMNode);
+            if (selectedIndex < 0) {
+                return;
+            }
+
+            let newIndex = selectedIndex + delta;
+
+            if (visibleDOMNodes[newIndex]) {
+                inspectDOMNode(visibleDOMNodes[newIndex]);
+            }
+        };
+
         if (document.activeElement.tagName !== "INPUT") {
-            if (event.keyCode == UP_ARROW_KEYCODE || event.keyCode == DOWN_ARROW_KEYCODE) {
-                let selectedIndex = visibleDOMNodes.indexOf(selectedDOMNode);
-                if (selectedIndex < 0) {
-                    return;
-                }
+            const isSummary = selectedDOMNode.parentNode.tagName === "SUMMARY";
+            const isDiv = selectedDOMNode.parentNode.tagName === "DIV";
 
-                let newIndex;
-
-                if (event.keyCode == UP_ARROW_KEYCODE) {
-                    newIndex = selectedIndex - 1;
-                } else if (event.keyCode == DOWN_ARROW_KEYCODE) {
-                    newIndex = selectedIndex + 1;
-                }
-
-                if (visibleDOMNodes[newIndex]) {
-                    inspectDOMNode(visibleDOMNodes[newIndex]);
-                }
+            if (event.keyCode == UP_ARROW_KEYCODE) {
+                move(-1);
+            } else if (event.keyCode == DOWN_ARROW_KEYCODE) {
+                move(1);
             } else if (event.keyCode == RETURN_KEYCODE || event.keyCode == SPACE_KEYCODE) {
-                if (selectedDOMNode.parentNode.tagName === "SUMMARY") {
+                if (isSummary) {
                     selectedDOMNode.parentNode.click();
+                }
+            } else if (event.keyCode == RIGHT_ARROW_KEYCODE) {
+                if (isSummary && selectedDOMNode.parentNode.parentNode.open === false) {
+                    selectedDOMNode.parentNode.click();
+                } else if (selectedDOMNode.parentNode.parentNode.open === true && !isDiv) {
+                    move(1);
+                }
+            } else if (event.keyCode == LEFT_ARROW_KEYCODE) {
+                if (isSummary && selectedDOMNode.parentNode.parentNode.open === true) {
+                    selectedDOMNode.parentNode.click();
+                } else if (selectedDOMNode.parentNode.parentNode.open === false || isDiv) {
+                    move(-1);
                 }
             }
         }

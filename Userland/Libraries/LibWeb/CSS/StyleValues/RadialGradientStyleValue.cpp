@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2020, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  * Copyright (c) 2021-2023, Sam Atkins <atkinssj@serenityos.org>
  * Copyright (c) 2022-2023, MacDue <macdue@dueutil.tech>
@@ -199,7 +199,7 @@ void RadialGradientStyleValue::resolve_for_size(Layout::NodeWithStyleAndBoxModel
     };
 }
 
-bool RadialGradientStyleValue::equals(StyleValue const& other) const
+bool RadialGradientStyleValue::equals(CSSStyleValue const& other) const
 {
     if (type() != other.type())
         return false;

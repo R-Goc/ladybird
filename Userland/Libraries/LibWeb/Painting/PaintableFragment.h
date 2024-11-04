@@ -15,14 +15,13 @@
 namespace Web::Painting {
 
 class PaintableFragment {
-    friend class InlinePaintable;
     friend class PaintableWithLines;
 
 public:
     explicit PaintableFragment(Layout::LineBoxFragment const&);
 
     Layout::Node const& layout_node() const { return m_layout_node; }
-    Paintable const& paintable() const { return *m_layout_node->paintable(); }
+    Paintable const& paintable() const { return *m_layout_node->first_paintable(); }
 
     int start() const { return m_start; }
     int length() const { return m_length; }
@@ -32,25 +31,21 @@ public:
     void set_offset(CSSPixelPoint offset) { m_offset = offset; }
     CSSPixelSize size() const { return m_size; }
 
-    BorderRadiiData const& border_radii_data() const { return m_border_radii_data; }
-    void set_border_radii_data(BorderRadiiData const& border_radii_data) { m_border_radii_data = border_radii_data; }
-
     Vector<ShadowData> const& shadows() const { return m_shadows; }
     void set_shadows(Vector<ShadowData>&& shadows) { m_shadows = shadows; }
-
-    ResolvedBackground const& resolved_background() const { return m_resolved_background; }
-    void set_resolved_background(ResolvedBackground resolved_background) { m_resolved_background = resolved_background; }
 
     CSSPixelRect const absolute_rect() const;
 
     RefPtr<Gfx::GlyphRun> glyph_run() const { return m_glyph_run; }
+    Gfx::Orientation orientation() const;
 
     CSSPixelRect selection_rect(Gfx::Font const&) const;
+    CSSPixelRect range_rect(Gfx::Font const&, size_t start_offset, size_t end_offset) const;
 
     CSSPixels width() const { return m_size.width(); }
     CSSPixels height() const { return m_size.height(); }
 
-    int text_index_at(CSSPixels) const;
+    int text_index_at(CSSPixelPoint) const;
 
     StringView string_view() const;
 
@@ -61,10 +56,9 @@ private:
     CSSPixels m_baseline;
     int m_start;
     int m_length;
-    Painting::BorderRadiiData m_border_radii_data;
     RefPtr<Gfx::GlyphRun> m_glyph_run;
+    CSS::WritingMode m_writing_mode;
     Vector<ShadowData> m_shadows;
-    ResolvedBackground m_resolved_background;
 };
 
 }

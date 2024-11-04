@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2023, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2023, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -20,6 +20,7 @@
 #include <LibWeb/Forward.h>
 #include <LibWeb/Layout/BoxModelMetrics.h>
 #include <LibWeb/Painting/PaintContext.h>
+#include <LibWeb/Painting/Paintable.h>
 #include <LibWeb/TreeNode.h>
 
 namespace Web::Layout {
@@ -64,17 +65,19 @@ public:
         m_pseudo_element_generator = &element;
     }
 
-    Painting::Paintable* paintable() { return m_paintable; }
-    Painting::Paintable const* paintable() const { return m_paintable; }
-    void set_paintable(JS::GCPtr<Painting::Paintable>);
+    using PaintableList = IntrusiveList<&Painting::Paintable::m_list_node>;
+
+    Painting::Paintable* first_paintable() { return m_paintable.first(); }
+    Painting::Paintable const* first_paintable() const { return m_paintable.first(); }
+    PaintableList& paintables() { return m_paintable; }
+    PaintableList const& paintables() const { return m_paintable; }
+    void add_paintable(JS::GCPtr<Painting::Paintable>);
+    void clear_paintables();
 
     virtual JS::GCPtr<Painting::Paintable> create_paintable() const;
 
     DOM::Document& document();
     DOM::Document const& document() const;
-
-    HTML::BrowsingContext const& browsing_context() const;
-    HTML::BrowsingContext& browsing_context();
 
     JS::GCPtr<HTML::Navigable> navigable() const;
 
@@ -122,6 +125,7 @@ public:
     bool is_positioned() const;
     bool is_absolutely_positioned() const;
     bool is_fixed_position() const;
+    bool is_sticky_position() const;
 
     bool is_flex_item() const { return m_is_flex_item; }
     void set_flex_item(bool b) { m_is_flex_item = b; }
@@ -183,9 +187,7 @@ private:
     friend class NodeWithStyle;
 
     JS::NonnullGCPtr<DOM::Node> m_dom_node;
-    JS::GCPtr<Painting::Paintable> m_paintable;
-
-    JS::NonnullGCPtr<HTML::BrowsingContext> m_browsing_context;
+    PaintableList m_paintable;
 
     JS::GCPtr<DOM::Element> m_pseudo_element_generator;
 
@@ -220,10 +222,13 @@ public:
 
     void transfer_table_box_computed_values_to_wrapper_computed_values(CSS::ComputedValues& wrapper_computed_values);
 
+    bool is_body() const;
+    bool is_scroll_container() const;
+
     virtual void visit_edges(Cell::Visitor& visitor) override;
 
 protected:
-    NodeWithStyle(DOM::Document&, DOM::Node*, NonnullRefPtr<CSS::StyleProperties>);
+    NodeWithStyle(DOM::Document&, DOM::Node*, CSS::StyleProperties);
     NodeWithStyle(DOM::Document&, DOM::Node*, NonnullOwnPtr<CSS::ComputedValues>);
 
 private:
@@ -242,7 +247,7 @@ public:
     BoxModelMetrics const& box_model() const { return m_box_model; }
 
 protected:
-    NodeWithStyleAndBoxModelMetrics(DOM::Document& document, DOM::Node* node, NonnullRefPtr<CSS::StyleProperties> style)
+    NodeWithStyleAndBoxModelMetrics(DOM::Document& document, DOM::Node* node, CSS::StyleProperties style)
         : NodeWithStyle(document, node, move(style))
     {
     }

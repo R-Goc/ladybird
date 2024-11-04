@@ -11,6 +11,7 @@
 #include <LibIPC/File.h>
 #include <LibWeb/Crypto/Crypto.h>
 #include <LibWebView/Application.h>
+#include <LibWebView/UserAgent.h>
 #include <UI/LadybirdWebViewBridge.h>
 
 #import <UI/Palette.h>
@@ -93,9 +94,21 @@ void WebViewBridge::enqueue_input_event(Web::MouseEvent event)
     ViewImplementation::enqueue_input_event(move(event));
 }
 
+void WebViewBridge::enqueue_input_event(Web::DragEvent event)
+{
+    event.position = to_content_position(event.position.to_type<int>()).to_type<Web::DevicePixels>();
+    event.screen_position = to_content_position(event.screen_position.to_type<int>()).to_type<Web::DevicePixels>();
+    ViewImplementation::enqueue_input_event(move(event));
+}
+
 void WebViewBridge::enqueue_input_event(Web::KeyEvent event)
 {
     ViewImplementation::enqueue_input_event(move(event));
+}
+
+void WebViewBridge::set_enable_autoplay(bool enabled)
+{
+    ViewImplementation::set_enable_autoplay(enabled);
 }
 
 Optional<WebViewBridge::Paintable> WebViewBridge::paintable()
@@ -139,15 +152,17 @@ Gfx::IntPoint WebViewBridge::to_widget_position(Gfx::IntPoint content_position) 
     return scale_for_device(content_position, inverse_device_pixel_ratio());
 }
 
-void WebViewBridge::initialize_client(CreateNewClient)
+void WebViewBridge::initialize_client(CreateNewClient create_new_client)
 {
     VERIFY(on_request_web_content);
 
-    // FIXME: Don't create a new process when CreateNewClient is false
-    //        We should create a new tab/window in the UI instead, and re-use the existing WebContentClient object.
-    m_client_state = {};
+    if (create_new_client == CreateNewClient::Yes) {
+        m_client_state = {};
+        m_client_state.client = on_request_web_content();
+    } else {
+        m_client_state.client->register_view(m_client_state.page_index, *this);
+    }
 
-    m_client_state.client = on_request_web_content();
     m_client_state.client->on_web_content_process_crash = [this] {
         Core::deferred_invoke([this] {
             handle_web_content_process_crash();
@@ -169,6 +184,19 @@ void WebViewBridge::initialize_client(CreateNewClient)
     if (auto const& webdriver_content_ipc_path = WebView::Application::chrome_options().webdriver_content_ipc_path; webdriver_content_ipc_path.has_value()) {
         client().async_connect_to_webdriver(m_client_state.page_index, *webdriver_content_ipc_path);
     }
+
+    if (auto const& user_agent_preset = WebView::Application::web_content_options().user_agent_preset; user_agent_preset.has_value()) {
+        auto user_agent = *WebView::user_agents.get(*user_agent_preset);
+        client().async_debug_request(m_client_state.page_index, "spoof-user-agent"sv, user_agent);
+    }
+}
+
+void WebViewBridge::initialize_client_as_child(WebViewBridge const& parent, u64 page_index)
+{
+    m_client_state.client = parent.client();
+    m_client_state.page_index = page_index;
+
+    initialize_client(CreateNewClient::No);
 }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -36,7 +36,7 @@ public:
         InternalDummy,    // Internal hack formatting context for unimplemented things. FIXME: Get rid of this.
     };
 
-    virtual void run(Box const&, LayoutMode, AvailableSpace const&) = 0;
+    virtual void run(AvailableSpace const&) = 0;
 
     // This function returns the automatic content height of the context's root box.
     virtual CSSPixels automatic_content_width() const = 0;
@@ -64,7 +64,7 @@ public:
     CSSPixels compute_width_for_replaced_element(Box const&, AvailableSpace const&) const;
     CSSPixels compute_height_for_replaced_element(Box const&, AvailableSpace const&) const;
 
-    OwnPtr<FormattingContext> create_independent_formatting_context_if_needed(LayoutState&, Box const& child_box);
+    OwnPtr<FormattingContext> create_independent_formatting_context_if_needed(LayoutState&, LayoutMode, Box const& child_box);
 
     virtual void parent_context_did_dimension_child_root_box() { }
 
@@ -107,13 +107,12 @@ public:
     [[nodiscard]] CSSPixels calculate_stretch_fit_width(Box const&, AvailableSize const&) const;
     [[nodiscard]] CSSPixels calculate_stretch_fit_height(Box const&, AvailableSize const&) const;
 
-    virtual CSSPixelPoint calculate_static_position(Box const&) const;
     bool can_skip_is_anonymous_text_run(Box&);
 
     void compute_inset(NodeWithStyleAndBoxModelMetrics const&);
 
 protected:
-    FormattingContext(Type, LayoutState&, Box const&, FormattingContext* parent = nullptr);
+    FormattingContext(Type, LayoutMode, LayoutState&, Box const&, FormattingContext* parent = nullptr);
 
     static bool should_treat_width_as_auto(Box const&, AvailableSpace const&);
     static bool should_treat_height_as_auto(Box const&, AvailableSpace const&);
@@ -170,6 +169,7 @@ protected:
     [[nodiscard]] Box const* box_child_to_derive_baseline_from(Box const&) const;
 
     Type m_type {};
+    LayoutMode m_layout_mode;
 
     FormattingContext* m_parent { nullptr };
     JS::NonnullGCPtr<Box const> m_context_box;

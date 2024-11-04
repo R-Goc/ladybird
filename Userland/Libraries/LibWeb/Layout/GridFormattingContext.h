@@ -17,6 +17,17 @@ enum class GridDimension {
     Column
 };
 
+enum class Alignment {
+    Normal,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+    Center,
+    Start,
+    End,
+    Stretch,
+};
+
 struct GridPosition {
     int row;
     int column;
@@ -26,19 +37,20 @@ struct GridPosition {
 struct GridItem {
     JS::NonnullGCPtr<Box const> box;
 
-    int row;
-    size_t row_span;
-    int column;
-    size_t column_span;
+    // Position and span are empty if the item is auto-placed which could only be the case for abspos items
+    Optional<int> row;
+    Optional<size_t> row_span;
+    Optional<int> column;
+    Optional<size_t> column_span;
 
     [[nodiscard]] size_t span(GridDimension const dimension) const
     {
-        return dimension == GridDimension::Column ? column_span : row_span;
+        return dimension == GridDimension::Column ? column_span.value() : row_span.value();
     }
 
     [[nodiscard]] int raw_position(GridDimension const dimension) const
     {
-        return dimension == GridDimension::Column ? column : row;
+        return dimension == GridDimension::Column ? column.value() : row.value();
     }
 
     [[nodiscard]] CSSPixels add_margin_box_sizes(CSSPixels content_size, GridDimension dimension, LayoutState const& state) const
@@ -49,8 +61,13 @@ struct GridItem {
         return box_state.margin_box_top() + content_size + box_state.margin_box_bottom();
     }
 
-    [[nodiscard]] int gap_adjusted_row(Box const& grid_box) const;
-    [[nodiscard]] int gap_adjusted_column(Box const& grid_box) const;
+    [[nodiscard]] int gap_adjusted_position(GridDimension const dimension) const
+    {
+        return dimension == GridDimension::Column ? gap_adjusted_column() : gap_adjusted_row();
+    }
+
+    [[nodiscard]] int gap_adjusted_row() const;
+    [[nodiscard]] int gap_adjusted_column() const;
 };
 
 enum class FoundUnoccupiedPlace {
@@ -65,7 +82,7 @@ public:
         m_max_column_index = max(0, columns_count - 1);
         m_max_row_index = max(0, rows_count - 1);
     }
-    OccupationGrid() {};
+    OccupationGrid() { }
 
     void set_occupied(int column_start, int column_end, int row_start, int row_end);
 
@@ -101,14 +118,15 @@ private:
 
 class GridFormattingContext final : public FormattingContext {
 public:
-    explicit GridFormattingContext(LayoutState&, Box const& grid_container, FormattingContext* parent);
+    explicit GridFormattingContext(LayoutState&, LayoutMode, Box const& grid_container, FormattingContext* parent);
     ~GridFormattingContext();
 
     virtual bool inhibits_floating() const override { return true; }
 
-    virtual void run(Box const&, LayoutMode, AvailableSpace const& available_space) override;
+    virtual void run(AvailableSpace const& available_space) override;
     virtual CSSPixels automatic_content_width() const override;
     virtual CSSPixels automatic_content_height() const override;
+    StaticPositionRect calculate_static_position_rect(Box const&) const;
 
     Box const& grid_container() const { return context_box(); }
 
@@ -238,17 +256,19 @@ private:
     void determine_grid_container_height();
     void determine_intrinsic_size_of_grid_container(AvailableSpace const& available_space);
 
-    void layout_absolutely_positioned_element(Box const&, AvailableSpace const&);
+    void layout_absolutely_positioned_element(Box const&);
     virtual void parent_context_did_dimension_child_root_box() override;
 
     void resolve_grid_item_widths();
     void resolve_grid_item_heights();
 
+    void resolve_track_spacing(GridDimension const dimension);
+
     AvailableSize get_free_space(AvailableSpace const&, GridDimension const) const;
 
     Optional<int> get_line_index_by_line_name(GridDimension dimension, String const&);
     CSSPixels resolve_definite_track_size(CSS::GridSize const&, AvailableSpace const&);
-    int count_of_repeated_auto_fill_or_fit_tracks(GridDimension);
+    int count_of_repeated_auto_fill_or_fit_tracks(GridDimension, CSS::ExplicitGridTrack const& repeated_track);
 
     void build_grid_areas();
 

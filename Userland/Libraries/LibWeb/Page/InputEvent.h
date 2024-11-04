@@ -8,8 +8,10 @@
 
 #include <AK/OwnPtr.h>
 #include <AK/Variant.h>
+#include <AK/Vector.h>
 #include <LibGfx/Point.h>
 #include <LibIPC/Forward.h>
+#include <LibWeb/HTML/SelectedFile.h>
 #include <LibWeb/PixelUnits.h>
 #include <LibWeb/UIEvents/KeyCode.h>
 #include <LibWeb/UIEvents/MouseButton.h>
@@ -21,7 +23,6 @@ struct ChromeInputData {
 };
 
 struct KeyEvent {
-public:
     enum class Type {
         KeyDown,
         KeyUp,
@@ -33,12 +34,12 @@ public:
     UIEvents::KeyCode key { UIEvents::KeyCode::Key_Invalid };
     UIEvents::KeyModifier modifiers { UIEvents::KeyModifier::Mod_None };
     u32 code_point { 0 };
+    bool repeat { false };
 
     OwnPtr<ChromeInputData> chrome_data;
 };
 
 struct MouseEvent {
-public:
     enum class Type {
         MouseDown,
         MouseUp,
@@ -61,7 +62,28 @@ public:
     OwnPtr<ChromeInputData> chrome_data;
 };
 
-using InputEvent = Variant<KeyEvent, MouseEvent>;
+struct DragEvent {
+    enum class Type {
+        DragStart,
+        DragMove,
+        DragEnd,
+        Drop,
+    };
+
+    DragEvent clone_without_chrome_data() const;
+
+    Type type;
+    Web::DevicePixelPoint position;
+    Web::DevicePixelPoint screen_position;
+    UIEvents::MouseButton button { UIEvents::MouseButton::None };
+    UIEvents::MouseButton buttons { UIEvents::MouseButton::None };
+    UIEvents::KeyModifier modifiers { UIEvents::KeyModifier::Mod_None };
+    Vector<HTML::SelectedFile> files;
+
+    OwnPtr<ChromeInputData> chrome_data;
+};
+
+using InputEvent = Variant<KeyEvent, MouseEvent, DragEvent>;
 
 }
 
@@ -78,5 +100,11 @@ ErrorOr<void> encode(Encoder&, Web::MouseEvent const&);
 
 template<>
 ErrorOr<Web::MouseEvent> decode(Decoder&);
+
+template<>
+ErrorOr<void> encode(Encoder&, Web::DragEvent const&);
+
+template<>
+ErrorOr<Web::DragEvent> decode(Decoder&);
 
 }

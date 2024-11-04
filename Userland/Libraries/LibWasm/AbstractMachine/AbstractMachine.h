@@ -51,6 +51,7 @@ public:
     };
     struct Func {
         FunctionAddress address;
+        RefPtr<Module> source_module; // null if host function.
     };
     struct Extern {
         ExternAddress address;
@@ -74,9 +75,25 @@ private:
 
 class Value {
 public:
-    Value()
+    explicit Value(ValueType type)
         : m_value(u128())
     {
+        switch (type.kind()) {
+        case ValueType::I32:
+        case ValueType::I64:
+        case ValueType::F32:
+        case ValueType::F64:
+        case ValueType::V128:
+            break;
+        case ValueType::FunctionReference:
+            // ref.null funcref
+            m_value = u128(0, 2);
+            break;
+        case ValueType::ExternReference:
+            // ref.null externref
+            m_value = u128(0, 3);
+            break;
+        }
     }
 
     template<typename T>
@@ -123,7 +140,7 @@ public:
         // 2: null funcref
         // 3: null externref
         ref.ref().visit(
-            [&](Reference::Func const& func) { m_value = u128(bit_cast<u64>(func.address), 0); },
+            [&](Reference::Func const& func) { m_value = u128(bit_cast<u64>(func.address), bit_cast<u64>(func.source_module.ptr())); },
             [&](Reference::Extern const& func) { m_value = u128(bit_cast<u64>(func.address), 1); },
             [&](Reference::Null const& null) { m_value = u128(0, null.type.kind() == ValueType::Kind::FunctionReference ? 2 : 3); });
     }
@@ -142,22 +159,16 @@ public:
     template<typename T>
     ALWAYS_INLINE T to() const
     {
+        static_assert(IsOneOf<T, u128, u64, i64, f32, f64, Reference> || IsIntegral<T>, "Unsupported type for Value::to()");
+
         if constexpr (IsSame<T, u128>) {
             return m_value;
         }
-        if constexpr (IsSame<T, u32>) {
-            u32 low = m_value.low() & 0xFFFFFFFF;
-            return low;
+        if constexpr (IsOneOf<T, u64, i64>) {
+            return bit_cast<T>(m_value.low());
         }
-        if constexpr (IsSame<T, i32>) {
-            u32 low = m_value.low() & 0xFFFFFFFF;
-            return bit_cast<i32>(low);
-        }
-        if constexpr (IsSame<T, u64>) {
-            return bit_cast<u64>(m_value.low());
-        }
-        if constexpr (IsSame<T, i64>) {
-            return bit_cast<i64>(m_value.low());
+        if constexpr (IsIntegral<T> && sizeof(T) < 8) {
+            return bit_cast<T>(static_cast<MakeUnsigned<T>>(m_value.low() & NumericLimits<MakeUnsigned<T>>::max()));
         }
         if constexpr (IsSame<T, f32>) {
             u32 low = m_value.low() & 0xFFFFFFFF;
@@ -167,17 +178,15 @@ public:
             return bit_cast<f64>(m_value.low());
         }
         if constexpr (IsSame<T, Reference>) {
-            switch (m_value.high()) {
+            switch (m_value.high() & 3) {
             case 0:
-                return Reference { Reference::Func { bit_cast<FunctionAddress>(m_value.low()) } };
+                return Reference { Reference::Func { bit_cast<FunctionAddress>(m_value.low()), bit_cast<Wasm::Module*>(m_value.high()) } };
             case 1:
                 return Reference { Reference::Extern { bit_cast<ExternAddress>(m_value.low()) } };
             case 2:
                 return Reference { Reference::Null { ValueType(ValueType::Kind::FunctionReference) } };
             case 3:
                 return Reference { Reference::Null { ValueType(ValueType::Kind::ExternReference) } };
-            default:
-                VERIFY_NOT_REACHED();
             }
         }
         VERIFY_NOT_REACHED();
@@ -331,20 +340,23 @@ private:
 
 class WasmFunction {
 public:
-    explicit WasmFunction(FunctionType const& type, ModuleInstance const& module, CodeSection::Code const& code)
+    explicit WasmFunction(FunctionType const& type, ModuleInstance const& instance, Module const& module, CodeSection::Code const& code)
         : m_type(type)
-        , m_module(module)
+        , m_module(module.make_weak_ptr())
+        , m_module_instance(instance)
         , m_code(code)
     {
     }
 
     auto& type() const { return m_type; }
-    auto& module() const { return m_module; }
+    auto& module() const { return m_module_instance; }
     auto& code() const { return m_code; }
+    RefPtr<Module const> module_ref() const { return m_module.strong_ref(); }
 
 private:
     FunctionType m_type;
-    ModuleInstance const& m_module;
+    WeakPtr<Module const> m_module;
+    ModuleInstance const& m_module_instance;
     CodeSection::Code const& m_code;
 };
 
@@ -398,6 +410,9 @@ public:
             return false;
         for (size_t i = previous_size; i < m_elements.size(); ++i)
             m_elements[i] = fill_value;
+
+        m_type = TableType { m_type.element_type(), Limits(m_type.limits().min() + size_to_grow, m_type.limits().max()) };
+
         return true;
     }
 
@@ -541,7 +556,7 @@ class Store {
 public:
     Store() = default;
 
-    Optional<FunctionAddress> allocate(ModuleInstance&, CodeSection::Code const&, TypeIndex);
+    Optional<FunctionAddress> allocate(ModuleInstance&, Module const&, CodeSection::Code const&, TypeIndex);
     Optional<FunctionAddress> allocate(HostFunction&&);
     Optional<TableAddress> allocate(TableType const&);
     Optional<MemoryAddress> allocate(MemoryType const&);
@@ -549,6 +564,7 @@ public:
     Optional<GlobalAddress> allocate(GlobalType const&, Value);
     Optional<ElementAddress> allocate(ValueType const&, Vector<Reference>);
 
+    Module const* get_module_for(FunctionAddress);
     FunctionInstance* get(FunctionAddress);
     TableInstance* get(TableAddress);
     MemoryInstance* get(MemoryAddress);

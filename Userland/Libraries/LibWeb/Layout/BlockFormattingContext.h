@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2022, Andreas Kling <andreas@ladybird.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -19,10 +19,10 @@ class LineBuilder;
 // https://www.w3.org/TR/css-display/#block-formatting-context
 class BlockFormattingContext : public FormattingContext {
 public:
-    explicit BlockFormattingContext(LayoutState&, BlockContainer const&, FormattingContext* parent);
+    explicit BlockFormattingContext(LayoutState&, LayoutMode layout_mode, BlockContainer const&, FormattingContext* parent);
     ~BlockFormattingContext();
 
-    virtual void run(Box const&, LayoutMode, AvailableSpace const&) override;
+    virtual void run(AvailableSpace const&) override;
     virtual CSSPixels automatic_content_width() const override;
     virtual CSSPixels automatic_content_height() const override;
 
@@ -30,16 +30,15 @@ public:
     auto const& right_side_floats() const { return m_right_floats; }
 
     bool box_should_avoid_floats_because_it_establishes_fc(Box const&);
-    void compute_width(Box const&, AvailableSpace const&, LayoutMode = LayoutMode::Normal);
+    void compute_width(Box const&, AvailableSpace const&);
 
     // https://www.w3.org/TR/css-display/#block-formatting-context-root
     BlockContainer const& root() const { return static_cast<BlockContainer const&>(context_box()); }
 
     virtual void parent_context_did_dimension_child_root_box() override;
 
-    void compute_height(Box const&, AvailableSpace const&);
-
-    void add_absolutely_positioned_box(Box const& box) { m_absolutely_positioned_boxes.append(box); }
+    void resolve_used_height_if_not_treated_as_auto(Box const&, AvailableSpace const&);
+    void resolve_used_height_if_treated_as_auto(Box const&, AvailableSpace const&, FormattingContext const* box_formatting_context = nullptr);
 
     SpaceUsedAndContainingMarginForFloats space_used_and_containing_margin_for_floats(CSSPixels y) const;
     [[nodiscard]] SpaceUsedByFloats intrusion_by_floats_into_box(Box const&, CSSPixels y_in_box) const;
@@ -47,9 +46,9 @@ public:
 
     virtual CSSPixels greatest_child_width(Box const&) const override;
 
-    void layout_floating_box(Box const& child, BlockContainer const& containing_block, LayoutMode, AvailableSpace const&, CSSPixels y, LineBuilder* = nullptr);
+    void layout_floating_box(Box const& child, BlockContainer const& containing_block, AvailableSpace const&, CSSPixels y, LineBuilder* = nullptr);
 
-    void layout_block_level_box(Box const&, BlockContainer const&, LayoutMode, CSSPixels& bottom_of_lowest_margin_box, AvailableSpace const&);
+    void layout_block_level_box(Box const&, BlockContainer const&, CSSPixels& bottom_of_lowest_margin_box, AvailableSpace const&);
 
     void resolve_vertical_box_model_metrics(Box const&);
 
@@ -69,10 +68,10 @@ private:
 
     void compute_width_for_block_level_replaced_element_in_normal_flow(Box const&, AvailableSpace const&);
 
-    void layout_viewport(LayoutMode, AvailableSpace const&);
+    void layout_viewport(AvailableSpace const&);
 
-    void layout_block_level_children(BlockContainer const&, LayoutMode, AvailableSpace const&);
-    void layout_inline_children(BlockContainer const&, LayoutMode, AvailableSpace const&);
+    void layout_block_level_children(BlockContainer const&, AvailableSpace const&);
+    void layout_inline_children(BlockContainer const&, AvailableSpace const&);
 
     void place_block_level_element_in_normal_flow_horizontally(Box const& child_box, AvailableSpace const&);
     void place_block_level_element_in_normal_flow_vertically(Box const&, CSSPixels y);
@@ -169,8 +168,6 @@ private:
 
     FloatSideData m_left_floats;
     FloatSideData m_right_floats;
-
-    Vector<JS::NonnullGCPtr<Box const>> m_absolutely_positioned_boxes;
 
     bool m_was_notified_after_parent_dimensioned_my_root_box { false };
 };

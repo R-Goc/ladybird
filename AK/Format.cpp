@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/ByteString.h>
 #include <AK/CharacterTypes.h>
 #include <AK/Format.h>
 #include <AK/GenericLexer.h>
+#include <AK/HashMap.h>
 #include <AK/IntegralMath.h>
 #include <AK/LexicalPath.h>
 #include <AK/String.h>
@@ -1086,6 +1088,68 @@ void vout(FILE* file, StringView fmtstr, TypeErasedFormatParams& params, bool ne
         auto error = ferror(file);
         dbgln("vout() failed ({} written out of {}), error was {} ({})", retval, string.length(), error, strerror(error));
     }
+}
+// FIXME:
+
+template<>
+struct Formatter<Error> : Formatter<FormatString> {
+    ErrorOr<void> format(FormatBuilder& builder, Error const& error);
+    {
+        if (error.is_syscall())
+            return Formatter<FormatString>::format(builder, "{}: {} (errno={})"sv, error.string_literal(), strerror(error.code()), error.code());
+        if (error.is_errno())
+            return Formatter<FormatString>::format(builder, "{} (errno={})"sv, strerror(error.code()), error.code());
+        if (error.is_windows_error()) {
+            auto helper = [error] {
+                thread_local HashMap<u32, ByteString> windows_errors;
+
+                auto string = s_windows_errors.get(code);
+                if (string.has_value())
+                    return Error::from_string_view(string->view());
+
+                TCHAR* message = nullptr;
+                u32 size = FormatMessage(
+                    FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                    nullptr,
+                    static_cast<DWORD>(code),
+                    MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                    message,
+                    0);
+                if (size == 0) {
+                }
+            };
+        }
+        return Formatter<FormatString>::format(builder, "{}"sv, error.string_literal());
+    }
+};
+
+Error Error::from_windows_error(u32 code)
+{
+    thread_local HashMap<u32, ByteString> s_windows_errors;
+
+    auto string = s_windows_errors.get(code);
+    if (string.has_value())
+        return Error::from_string_view(string->view());
+
+    char* message = nullptr;
+    auto size = FormatMessage(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        nullptr,
+        static_cast<DWORD>(code),
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        reinterpret_cast<LPSTR>(&message),
+        0,
+        nullptr);
+
+    if (size == 0) {
+        static char buffer[128];
+        (void)snprintf(buffer, _countof(buffer), "Error 0x%08lX while getting text of error 0x%08llX", GetLastError(), code);
+        return Error::from_string_view({ buffer, _countof(buffer) });
+    }
+
+    auto& string_in_map = s_windows_errors.ensure(code, [message, size] { return ByteString { message, size }; });
+    LocalFree(message);
+    return Error::from_string_view(string_in_map.view());
 }
 
 #ifdef AK_OS_ANDROID

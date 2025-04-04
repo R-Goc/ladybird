@@ -24,7 +24,7 @@ public:
     }
 
 #ifdef AK_OS_WINDOWS
-    static Error from_windows_error(u64 code);
+    static Error from_windows_error(u32 windows_error);
     static Error from_windows_error();
 #endif
 
@@ -87,6 +87,10 @@ public:
     {
         return m_syscall;
     }
+    bool is_windows_error() const
+    {
+        return m_windows_error;
+    }
     StringView string_literal() const
     {
         return m_string_literal;
@@ -111,6 +115,12 @@ private:
     {
     }
 
+    Error(int code, bool from_windows)
+        : m_code(code)
+        , m_windows_error(from_windows)
+    {
+    }
+
     Error(Error const&) = default;
     Error& operator=(Error const&) = default;
 
@@ -119,6 +129,8 @@ private:
     int m_code { 0 };
 
     bool m_syscall { false };
+
+    bool m_windows_error { false };
 };
 
 template<typename T, typename E>

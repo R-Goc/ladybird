@@ -8,6 +8,7 @@
 #pragma once
 
 #include <AK/Assertions.h>
+#include <AK/Export.h>
 #include <AK/Noncopyable.h>
 #include <AK/StdLibExtras.h>
 #include <AK/Try.h>

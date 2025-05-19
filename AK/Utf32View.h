@@ -8,14 +8,15 @@
 
 #include <AK/Assertions.h>
 #include <AK/Checked.h>
+#include <AK/Export.h>
 #include <AK/Format.h>
 #include <AK/Types.h>
 
 namespace AK {
 
-class Utf32View;
+class AK_API Utf32View;
 
-class Utf32CodePointIterator {
+class AK_API Utf32CodePointIterator {
     friend class Utf32View;
 
 public:
@@ -136,7 +137,7 @@ private:
 };
 
 template<>
-struct Formatter<Utf32View> : Formatter<StringView> {
+struct AK_API Formatter<Utf32View> : Formatter<StringView> {
     ErrorOr<void> format(FormatBuilder&, Utf32View const&);
 };
 

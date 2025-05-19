@@ -11,10 +11,11 @@
 #include <AK/HashMap.h>
 #include <AK/Noncopyable.h>
 #include <AK/Vector.h>
+#include <AK/Export.h>
 
 namespace AK {
 
-class CircularBuffer {
+class AK_API CircularBuffer {
     AK_MAKE_NONCOPYABLE(CircularBuffer);
     AK_MAKE_DEFAULT_MOVABLE(CircularBuffer);
 
@@ -61,7 +62,7 @@ protected:
     size_t m_seekback_limit {};
 };
 
-class SearchableCircularBuffer : public CircularBuffer {
+class AK_API SearchableCircularBuffer : public CircularBuffer {
 public:
     static ErrorOr<SearchableCircularBuffer> create_empty(size_t size);
     static ErrorOr<SearchableCircularBuffer> create_initialized(ByteBuffer);

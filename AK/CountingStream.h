@@ -6,12 +6,13 @@
 
 #pragma once
 
+#include <AK/Export.h>
 #include <AK/MaybeOwned.h>
 #include <AK/Stream.h>
 
 namespace AK {
 
-class CountingStream : public Stream {
+class AK_API CountingStream : public Stream {
 public:
     CountingStream(MaybeOwned<Stream>);
 

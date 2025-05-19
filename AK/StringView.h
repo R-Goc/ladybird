@@ -16,10 +16,11 @@
 #include <AK/StdLibExtras.h>
 #include <AK/StringHash.h>
 #include <AK/StringUtils.h>
+#include <AK/Export.h>
 
 namespace AK {
 
-class StringView {
+class AK_API StringView {
 public:
     ALWAYS_INLINE constexpr StringView() = default;
 

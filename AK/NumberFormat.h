@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <AK/Export.h>
 #include <AK/String.h>
 #include <AK/Time.h>
 
@@ -21,12 +22,12 @@ enum class UseThousandsSeparator {
     No
 };
 
-String human_readable_size(u64 size, HumanReadableBasedOn based_on = HumanReadableBasedOn::Base2, UseThousandsSeparator use_thousands_separator = UseThousandsSeparator::No);
+AK_API String human_readable_size(u64 size, HumanReadableBasedOn based_on = HumanReadableBasedOn::Base2, UseThousandsSeparator use_thousands_separator = UseThousandsSeparator::No);
 String human_readable_quantity(u64 quantity, HumanReadableBasedOn based_on = HumanReadableBasedOn::Base2, StringView unit = "B"sv, UseThousandsSeparator use_thousands_separator = UseThousandsSeparator::No);
 
 String human_readable_size_long(u64 size, UseThousandsSeparator use_thousands_separator = UseThousandsSeparator::No);
-String human_readable_time(Duration);
-String human_readable_digital_time(i64 time_in_seconds);
+AK_API String human_readable_time(Duration);
+AK_API String human_readable_digital_time(i64 time_in_seconds);
 
 }
 

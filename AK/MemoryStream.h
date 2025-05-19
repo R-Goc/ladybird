@@ -8,6 +8,7 @@
 #pragma once
 
 #include <AK/Error.h>
+#include <AK/Export.h>
 #include <AK/OwnPtr.h>
 #include <AK/Stream.h>
 #include <AK/Vector.h>
@@ -16,7 +17,7 @@ namespace AK {
 
 /// A stream class that allows for reading/writing on a preallocated memory area
 /// using a single read/write head.
-class FixedMemoryStream : public SeekableStream {
+class AK_API FixedMemoryStream : public SeekableStream {
 public:
     enum class Mode {
         ReadOnly,
@@ -82,7 +83,7 @@ private:
 
 /// A stream class that allows for writing to an automatically allocating memory area
 /// and reading back the written data afterwards.
-class AllocatingMemoryStream final : public Stream {
+class AK_API AllocatingMemoryStream final : public Stream {
 public:
     static constexpr size_t CHUNK_SIZE = 4096;
 

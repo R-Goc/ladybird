@@ -7,6 +7,7 @@
 #pragma once
 
 #include <AK/ByteStringImpl.h>
+#include <AK/Export.h>
 #include <AK/Format.h>
 #include <AK/Forward.h>
 #include <AK/RefPtr.h>
@@ -36,7 +37,7 @@ namespace AK {
 //     builder.append("123");
 //     s = builder.to_byte_string();
 
-class ByteString {
+class AK_API ByteString {
 public:
     ~ByteString() = default;
 
@@ -323,7 +324,7 @@ struct CaseInsensitiveStringTraits : public Traits<ByteString> {
     static bool equals(ByteString const& a, ByteString const& b) { return a.equals_ignoring_ascii_case(b); }
 };
 
-ByteString escape_html_entities(StringView html);
+AK_API ByteString escape_html_entities(StringView html);
 
 }
 

@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <AK/Export.h>
 #include <AK/Platform.h>
 #include <AK/Span.h>
 #include <AK/StdLibExtras.h>
@@ -18,7 +19,7 @@
 
 namespace AK {
 
-void fill_with_random([[maybe_unused]] Bytes bytes);
+AK_API void fill_with_random([[maybe_unused]] Bytes bytes);
 
 template<typename T>
 inline T get_random()
@@ -28,8 +29,8 @@ inline T get_random()
     return t;
 }
 
-u32 get_random_uniform(u32 max_bounds);
-u64 get_random_uniform_64(u64 max_bounds);
+AK_API u32 get_random_uniform(u32 max_bounds);
+AK_API u64 get_random_uniform_64(u64 max_bounds);
 
 template<typename Collection>
 inline void shuffle(Collection& collection)

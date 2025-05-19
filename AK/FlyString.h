@@ -7,6 +7,7 @@
 #pragma once
 
 #include <AK/Error.h>
+#include <AK/Export.h>
 #include <AK/Format.h>
 #include <AK/Optional.h>
 #include <AK/Platform.h>
@@ -16,7 +17,7 @@
 
 namespace AK {
 
-class FlyString {
+class AK_API FlyString {
     AK_MAKE_DEFAULT_MOVABLE(FlyString);
     AK_MAKE_DEFAULT_COPYABLE(FlyString);
 
@@ -100,7 +101,7 @@ private:
     constexpr bool is_invalid() const { return m_data.raw(Badge<FlyString> {}) == 0; }
 };
 
-void did_destroy_fly_string_data(Badge<Detail::StringData>, Detail::StringData const&);
+void AK_API did_destroy_fly_string_data(Badge<Detail::StringData>, Detail::StringData const&);
 
 template<>
 class Optional<FlyString> : public OptionalBase<FlyString> {
@@ -199,7 +200,7 @@ private:
 };
 
 template<>
-struct Traits<FlyString> : public DefaultTraits<FlyString> {
+struct AK_API Traits<FlyString> : public DefaultTraits<FlyString> {
     static unsigned hash(FlyString const&);
 };
 

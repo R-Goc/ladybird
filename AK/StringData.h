@@ -17,7 +17,7 @@ static constexpr size_t MAX_SHORT_STRING_BYTE_COUNT = sizeof(StringData*) - size
 
 class StringData;
 
-void did_destroy_fly_string_data(Badge<StringData>, StringData const&);
+void AK_API did_destroy_fly_string_data(Badge<StringData>, StringData const&);
 
 class StringData final : public RefCounted<StringData> {
 public:

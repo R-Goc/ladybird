@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <AK/Export.h>
 #include <AK/Forward.h>
 #include <AK/NonnullOwnPtr.h>
 #include <AK/Optional.h>
@@ -14,7 +15,7 @@
 
 namespace AK {
 
-class JsonValue {
+class AK_API JsonValue {
 public:
     enum class Type {
         Null,

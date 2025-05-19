@@ -6,11 +6,13 @@
 
 #pragma once
 
-extern "C" void dump_backtrace();
-extern "C" bool ak_colorize_output(void);
-extern "C" __attribute__((noreturn)) void ak_trap(void);
+#include <AK/Export.h>
 
-extern "C" __attribute__((noreturn)) void ak_verification_failed(char const*);
+extern "C" AK_API void dump_backtrace();
+extern "C" AK_API bool ak_colorize_output(void);
+extern "C" AK_API __attribute__((noreturn)) void ak_trap(void);
+
+extern "C" AK_API __attribute__((noreturn)) void ak_verification_failed(char const*);
 #define __stringify_helper(x) #x
 #define __stringify(x) __stringify_helper(x)
 #define VERIFY(...)                                                                          \
@@ -25,7 +27,7 @@ static constexpr bool TODO = false;
 #define TODO_PPC64() VERIFY(TODO)   /* NOLINT(cert-dcl03-c,misc-static-assert) No, this can't be static_assert, it's a runtime check */
 #define TODO_PPC() VERIFY(TODO)     /* NOLINT(cert-dcl03-c,misc-static-assert) No, this can't be static_assert, it's a runtime check */
 
-extern "C" __attribute__((noreturn)) void ak_assertion_failed(char const*);
+extern "C" AK_API __attribute__((noreturn)) void ak_assertion_failed(char const*);
 #ifndef NDEBUG
 #    define ASSERT(...)                                                                       \
         (__builtin_expect(/* NOLINT(readability-simplify-boolean-expr) */ !(__VA_ARGS__), 0)  \

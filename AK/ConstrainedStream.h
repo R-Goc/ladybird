@@ -7,12 +7,13 @@
 
 #pragma once
 
+#include <AK/Export.h>
 #include <AK/MaybeOwned.h>
 #include <AK/Stream.h>
 
 namespace AK {
 
-class ConstrainedStream : public Stream {
+class AK_API ConstrainedStream : public Stream {
 public:
     ConstrainedStream(MaybeOwned<Stream>, u64 limit);
 

@@ -10,6 +10,7 @@
 
 #include <AK/Concepts.h>
 #include <AK/Error.h>
+#include <AK/Export.h>
 #include <AK/HashMap.h>
 #include <AK/JsonArray.h>
 #include <AK/JsonValue.h>
@@ -17,7 +18,7 @@
 
 namespace AK {
 
-class JsonObject {
+class AK_API JsonObject {
     template<typename Callback>
     using CallbackErrorType = decltype(declval<Callback>()(declval<String const&>(), declval<JsonValue const&>()).release_error());
 

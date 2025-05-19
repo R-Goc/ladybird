@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "AK/Export.h"
 #include <AK/StringView.h>
 
 namespace AK {
@@ -44,7 +45,7 @@ struct FloatingPointParseResults {
 /// This function additionally detects out of range values which have been rounded to
 /// [-]infinity or 0 and gives the next character to read after the floating point.
 template<FloatingPoint T = double>
-FloatingPointParseResults<T> parse_first_floating_point(char const* start, char const* end);
+AK_API FloatingPointParseResults<T> parse_first_floating_point(char const* start, char const* end);
 
 /// This function finds the first floating point starting at start up to the first '\0'.
 /// The format is identical to parse_first_floating_point above.
@@ -55,7 +56,7 @@ FloatingPointParseResults<T> parse_first_floating_point_until_zero_character(cha
 /// does not a floating point or contains more characters beyond the floating point. For the format
 /// check the comment on parse_first_floating_point.
 template<FloatingPoint T = double>
-Optional<T> parse_floating_point_completely(char const* start, char const* end);
+AK_API Optional<T> parse_floating_point_completely(char const* start, char const* end);
 
 /// This function finds the first floating point as a hex float within [start, end).
 /// The accepted format is intentionally as lenient as possible. If your format is
@@ -71,7 +72,7 @@ Optional<T> parse_floating_point_completely(char const* start, char const* end);
 /// This function additionally detects out of range values which have been rounded to
 /// [-]infinity or 0 and gives the next character to read after the floating point.
 template<FloatingPoint T = double>
-FloatingPointParseResults<T> parse_first_hexfloat_until_zero_character(char const* start);
+AK_API FloatingPointParseResults<T> parse_first_hexfloat_until_zero_character(char const* start);
 
 }
 

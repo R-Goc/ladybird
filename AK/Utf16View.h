@@ -9,6 +9,7 @@
 #include <AK/ByteString.h>
 #include <AK/Endian.h>
 #include <AK/Error.h>
+#include <AK/Export.h>
 #include <AK/Format.h>
 #include <AK/Forward.h>
 #include <AK/Optional.h>
@@ -25,19 +26,19 @@ struct Utf16ConversionResult {
     Utf16Data data;
     size_t code_point_count;
 };
-ErrorOr<Utf16ConversionResult> utf8_to_utf16(StringView, Endianness = Endianness::Host);
-ErrorOr<Utf16ConversionResult> utf8_to_utf16(Utf8View const&, Endianness = Endianness::Host);
-ErrorOr<Utf16ConversionResult> utf32_to_utf16(Utf32View const&, Endianness = Endianness::Host);
-ErrorOr<void> code_point_to_utf16(Utf16Data&, u32, Endianness = Endianness::Host);
+AK_API ErrorOr<Utf16ConversionResult> utf8_to_utf16(StringView, Endianness = Endianness::Host);
+AK_API ErrorOr<Utf16ConversionResult> utf8_to_utf16(Utf8View const&, Endianness = Endianness::Host);
+AK_API ErrorOr<Utf16ConversionResult> utf32_to_utf16(Utf32View const&, Endianness = Endianness::Host);
+AK_API ErrorOr<void> code_point_to_utf16(Utf16Data&, u32, Endianness = Endianness::Host);
 
-[[nodiscard]] bool validate_utf16_le(ReadonlyBytes);
-[[nodiscard]] bool validate_utf16_be(ReadonlyBytes);
+[[nodiscard]] AK_API bool validate_utf16_le(ReadonlyBytes);
+[[nodiscard]] AK_API bool validate_utf16_be(ReadonlyBytes);
 
-size_t utf16_code_unit_length_from_utf8(StringView);
+AK_API size_t utf16_code_unit_length_from_utf8(StringView);
 
-class Utf16View;
+class AK_API Utf16View;
 
-class Utf16CodePointIterator {
+class AK_API Utf16CodePointIterator {
     friend class Utf16View;
 
 public:
@@ -155,7 +156,7 @@ private:
 }
 
 template<>
-struct AK::Formatter<AK::Utf16View> : Formatter<FormatString> {
+struct AK_API AK::Formatter<AK::Utf16View> : Formatter<FormatString> {
     ErrorOr<void> format(FormatBuilder& builder, AK::Utf16View const& value)
     {
         return builder.builder().try_append(value);

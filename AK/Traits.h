@@ -8,6 +8,7 @@
 
 #include <AK/BitCast.h>
 #include <AK/Concepts.h>
+#include <AK/Export.h>
 #include <AK/Forward.h>
 #include <AK/HashFunctions.h>
 #include <AK/StringHash.h>

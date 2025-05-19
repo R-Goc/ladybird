@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <AK/Export.h>
 #include <AK/NonnullOwnPtr.h>
 #include <AK/RedBlackTree.h>
 #include <AK/Result.h>
@@ -14,7 +15,7 @@
 
 namespace AK {
 
-class GenericLexer {
+class AK_API GenericLexer {
 public:
     constexpr explicit GenericLexer(StringView input)
         : m_input(input)
@@ -223,7 +224,7 @@ protected:
     size_t m_index { 0 };
 };
 
-class LineTrackingLexer : public GenericLexer {
+class AK_API LineTrackingLexer : public GenericLexer {
 public:
     struct Position {
         size_t offset { 0 };

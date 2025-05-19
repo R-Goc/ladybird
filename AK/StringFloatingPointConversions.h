@@ -30,7 +30,7 @@ struct FloatingPointExponentialForm {
 ///  5. `abs((-1) ^ sign * fraction * 10 ^ exponent - value)' is minimal.
 ///  6. fraction is even.
 template<FloatingPoint T>
-FloatingPointExponentialForm convert_floating_point_to_decimal_exponential_form(T value);
+AK_API FloatingPointExponentialForm convert_floating_point_to_decimal_exponential_form(T value);
 
 }
 

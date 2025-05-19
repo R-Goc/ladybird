@@ -6,11 +6,12 @@
 
 #pragma once
 
+#include <AK/Export.h>
 #include <AK/Types.h>
 
 namespace AK {
 
-class StackInfo {
+class AK_API StackInfo {
 public:
     StackInfo();
 

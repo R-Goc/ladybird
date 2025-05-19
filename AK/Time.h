@@ -10,6 +10,7 @@
 #include <AK/Assertions.h>
 #include <AK/Badge.h>
 #include <AK/Checked.h>
+#include <AK/Export.h>
 #include <AK/Platform.h>
 #include <AK/Types.h>
 #ifdef AK_OS_WINDOWS
@@ -46,14 +47,14 @@ constexpr bool is_leap_year(int year)
 // The return value is 0-indexed, that is 0 is Sunday, 1 is Monday, etc.
 // Day may be negative or larger than the number of days
 // in the given month.
-unsigned day_of_week(int year, unsigned month, int day);
+AK_API unsigned day_of_week(int year, unsigned month, int day);
 
 // Month and day start at 1. Month must be >= 1 and <= 12.
 // The return value is 0-indexed, that is Jan 1 is day 0.
 // Day may be negative or larger than the number of days
 // in the given month. If day is negative enough, the result
 // can be negative.
-constexpr int day_of_year(int year, unsigned month, int day)
+AK_API constexpr int day_of_year(int year, unsigned month, int day)
 {
     if (is_constant_evaluated())
         VERIFY(month >= 1 && month <= 12); // Note that this prevents bad constexpr months, but never actually prints anything.
@@ -70,7 +71,7 @@ constexpr int day_of_year(int year, unsigned month, int day)
 }
 
 // Month starts at 1. Month must be >= 1 and <= 12.
-int days_in_month(int year, unsigned month);
+AK_API int days_in_month(int year, unsigned month);
 
 constexpr int days_in_year(int year)
 {
@@ -157,7 +158,7 @@ constexpr i64 seconds_since_epoch_to_year(i64 seconds)
 // NOTE: This class is naive. It may represent either absolute offsets or relative durations. It does not have a reference point in itself,
 //       and therefore comparing multiple instances of this class is only sensible if you are sure that their reference point is identical.
 //       You should not be using this class directly to represent absolute time.
-class Duration {
+class AK_API Duration {
 public:
     constexpr Duration() = default;
     constexpr Duration(Duration const&) = default;
@@ -374,7 +375,7 @@ protected:
 
 // Naive UNIX time, representing an offset from 1970-01-01 00:00:00Z, without accounting for UTC leap seconds.
 // This class is mainly intended for interoperating with anything that expects a unix timestamp.
-class UnixDateTime : public Detail::UnawareTime {
+class AK_API UnixDateTime : public Detail::UnawareTime {
 public:
     constexpr UnixDateTime()
         : Detail::UnawareTime(Duration::zero())
@@ -472,7 +473,7 @@ private:
 };
 
 // Monotonic time represents time returned from the CLOCK_MONOTONIC clock, which has an arbitrary fixed reference point.
-class MonotonicTime : private Detail::UnawareTime {
+class AK_API MonotonicTime : private Detail::UnawareTime {
 public:
     // Monotonic time does not have a defined reference point.
     // A MonotonicTime at the reference point is therefore meaningless.

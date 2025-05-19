@@ -10,10 +10,11 @@
 #include <AK/Format.h>
 #include <AK/StringView.h>
 #include <AK/Vector.h>
+#include <AK/Export.h>
 
 namespace AK {
 
-class OptionParser {
+class AK_API OptionParser {
 public:
     enum class ArgumentRequirement {
         NoArgument,

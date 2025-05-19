@@ -7,6 +7,7 @@
 #pragma once
 
 #include <AK/Badge.h>
+#include <AK/Export.h>
 #include <AK/NonnullRefPtr.h>
 #include <AK/RefCounted.h>
 #include <AK/Span.h>
@@ -22,7 +23,7 @@ enum ShouldChomp {
 
 size_t allocation_size_for_stringimpl(size_t length);
 
-class ByteStringImpl : public RefCounted<ByteStringImpl> {
+class AK_API ByteStringImpl : public RefCounted<ByteStringImpl> {
 public:
     static NonnullRefPtr<ByteStringImpl const> create_uninitialized(size_t length, char*& buffer);
     static NonnullRefPtr<ByteStringImpl const> create(char const* cstring, ShouldChomp = NoChomp);

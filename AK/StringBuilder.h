@@ -10,11 +10,12 @@
 #include <AK/Format.h>
 #include <AK/Forward.h>
 #include <AK/StringView.h>
+#include <AK/Export.h>
 #include <stdarg.h>
 
 namespace AK {
 
-class StringBuilder {
+class AK_API StringBuilder {
 public:
     static constexpr size_t inline_capacity = 256;
 

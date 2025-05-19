@@ -21,10 +21,10 @@ namespace AK {
 
 class TypeErasedFormatParams;
 class FormatParser;
-class FormatBuilder;
+class AK_API FormatBuilder;
 
 template<typename T, typename = void>
-struct Formatter {
+struct AK_API Formatter {
     using __no_formatter_defined = void;
 };
 
@@ -324,7 +324,7 @@ private:
 // std::format. One difference is that we are not counting the width or sign towards the
 // total width when calculating zero padding for numbers.
 // https://en.cppreference.com/w/cpp/utility/format/formatter#Standard_format_specification
-struct StandardFormatter {
+struct AK_API StandardFormatter {
     enum class Mode {
         Default,
         Binary,
@@ -570,9 +570,9 @@ struct Formatter<nullptr_t> : Formatter<FlatPtr> {
     }
 };
 
-ErrorOr<void> vformat(StringBuilder&, StringView fmtstr, TypeErasedFormatParams&);
+AK_API ErrorOr<void> vformat(StringBuilder&, StringView fmtstr, TypeErasedFormatParams&);
 
-void vout(FILE*, StringView fmtstr, TypeErasedFormatParams&, bool newline = false);
+AK_API void vout(FILE*, StringView fmtstr, TypeErasedFormatParams&, bool newline = false);
 
 template<typename... Parameters>
 void out(FILE* file, CheckedFormatString<Parameters...>&& fmtstr, Parameters const&... parameters)
@@ -668,7 +668,7 @@ void set_log_tag_name(char const*);
             warnln(fmt, ##__VA_ARGS__); \
     } while (0)
 
-void vdbg(StringView fmtstr, TypeErasedFormatParams&, bool newline = false);
+void AK_API vdbg(StringView fmtstr, TypeErasedFormatParams&, bool newline = false);
 
 template<typename... Parameters>
 void dbg(CheckedFormatString<Parameters...>&& fmtstr, Parameters const&... parameters)
@@ -686,8 +686,8 @@ void dbgln(CheckedFormatString<Parameters...>&& fmtstr, Parameters const&... par
 
 inline void dbgln() { dbgln(""); }
 
-void set_debug_enabled(bool);
-void set_rich_debug_enabled(bool);
+AK_API void set_debug_enabled(bool);
+AK_API void set_rich_debug_enabled(bool);
 
 template<typename T>
 class FormatIfSupported {
@@ -725,7 +725,7 @@ struct Formatter<FormatIfSupported<T>> : __FormatIfSupported<T, HasFormatter<T>>
 struct FormatString {
 };
 template<>
-struct Formatter<FormatString> : Formatter<StringView> {
+struct AK_API Formatter<FormatString> : Formatter<StringView> {
     template<typename... Parameters>
     ErrorOr<void> format(FormatBuilder& builder, StringView fmtstr, Parameters const&... parameters)
     {
@@ -736,7 +736,7 @@ struct Formatter<FormatString> : Formatter<StringView> {
 };
 
 template<>
-struct Formatter<Error> : Formatter<FormatString> {
+struct AK_API Formatter<Error> : Formatter<FormatString> {
     ErrorOr<void> format(FormatBuilder& builder, Error const& error);
 
 private:

@@ -9,6 +9,7 @@
 
 #include <AK/CharacterTypes.h>
 #include <AK/Concepts.h>
+#include <AK/Export.h>
 #include <AK/Format.h>
 #include <AK/Forward.h>
 #include <AK/Optional.h>
@@ -38,7 +39,7 @@ namespace AK {
 // String is a strongly owned sequence of Unicode code points encoded as UTF-8.
 // The data may or may not be heap-allocated, and may or may not be reference counted.
 // There is no guarantee that the underlying bytes are null-terminated.
-class String : public Detail::StringBase {
+class AK_API String : public Detail::StringBase {
     AK_MAKE_DEFAULT_COPYABLE(String);
     AK_MAKE_DEFAULT_MOVABLE(String);
 
@@ -341,7 +342,7 @@ private:
 };
 
 template<>
-struct Traits<String> : public DefaultTraits<String> {
+struct AK_API Traits<String> : public DefaultTraits<String> {
     static unsigned hash(String const&);
 };
 

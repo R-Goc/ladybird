@@ -13,6 +13,7 @@
 #include <AK/Forward.h>
 #include <AK/StringView.h>
 #include <AK/Traits.h>
+#include <AK/Export.h>
 
 namespace AK {
 
@@ -20,7 +21,7 @@ namespace AK {
 /// operations one can perform on every stream.
 /// Operations without a sensible default that are unsupported by an implementation
 /// of a Stream should return EBADF as an error.
-class Stream {
+class AK_API Stream {
 public:
     /// Reads into a buffer, with the maximum size being the size of the buffer.
     /// The amount of bytes read can be smaller than the size of the buffer.
@@ -127,7 +128,7 @@ enum class SeekMode {
 
 /// Adds seekability to a Stream. Classes inheriting from SeekableStream
 /// will be seekable to any point in the stream.
-class SeekableStream : public Stream {
+class AK_API SeekableStream : public Stream {
 public:
     /// Seeks to the given position in the given mode. Returns either the
     /// current position of the file, or an errno in the case of an error.

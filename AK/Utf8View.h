@@ -9,6 +9,7 @@
 
 #include <AK/ByteString.h>
 #include <AK/Debug.h>
+#include <AK/Export.h>
 #include <AK/Format.h>
 #include <AK/Function.h>
 #include <AK/StringView.h>
@@ -16,9 +17,9 @@
 
 namespace AK {
 
-class Utf8View;
+class AK_API Utf8View;
 
-class Utf8CodePointIterator {
+class AK_API Utf8CodePointIterator {
     friend class Utf8View;
     friend class ByteString;
 

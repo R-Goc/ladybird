@@ -8,12 +8,13 @@
 
 #include <AK/ByteBuffer.h>
 #include <AK/Error.h>
+#include <AK/Export.h>
 #include <AK/String.h>
 #include <AK/StringView.h>
 
 namespace AK {
 
-size_t size_required_to_decode_base64(StringView);
+AK_API size_t size_required_to_decode_base64(StringView);
 
 enum class LastChunkHandling {
     Loose,
@@ -21,8 +22,8 @@ enum class LastChunkHandling {
     StopBeforePartial,
 };
 
-ErrorOr<ByteBuffer> decode_base64(StringView, LastChunkHandling = LastChunkHandling::Loose);
-ErrorOr<ByteBuffer> decode_base64url(StringView, LastChunkHandling = LastChunkHandling::Loose);
+AK_API ErrorOr<ByteBuffer> decode_base64(StringView, LastChunkHandling = LastChunkHandling::Loose);
+AK_API ErrorOr<ByteBuffer> decode_base64url(StringView, LastChunkHandling = LastChunkHandling::Loose);
 
 struct InvalidBase64 {
     Error error;
@@ -31,16 +32,16 @@ struct InvalidBase64 {
 
 // On success, these return the number of input bytes that were decoded. This might be less than the
 // string length if the output buffer was not large enough.
-ErrorOr<size_t, InvalidBase64> decode_base64_into(StringView, ByteBuffer&, LastChunkHandling = LastChunkHandling::Loose);
-ErrorOr<size_t, InvalidBase64> decode_base64url_into(StringView, ByteBuffer&, LastChunkHandling = LastChunkHandling::Loose);
+AK_API ErrorOr<size_t, InvalidBase64> decode_base64_into(StringView, ByteBuffer&, LastChunkHandling = LastChunkHandling::Loose);
+AK_API ErrorOr<size_t, InvalidBase64> decode_base64url_into(StringView, ByteBuffer&, LastChunkHandling = LastChunkHandling::Loose);
 
 enum class OmitPadding {
     No,
     Yes,
 };
 
-ErrorOr<String> encode_base64(ReadonlyBytes, OmitPadding = OmitPadding::No);
-ErrorOr<String> encode_base64url(ReadonlyBytes, OmitPadding = OmitPadding::No);
+AK_API ErrorOr<String> encode_base64(ReadonlyBytes, OmitPadding = OmitPadding::No);
+AK_API ErrorOr<String> encode_base64url(ReadonlyBytes, OmitPadding = OmitPadding::No);
 
 }
 

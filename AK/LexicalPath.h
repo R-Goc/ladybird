@@ -9,6 +9,7 @@
 
 #include <AK/ByteString.h>
 #include <AK/Vector.h>
+#include <AK/Export.h>
 
 // On Linux distros that use mlibc `basename` is defined as a macro that expands to `__mlibc_gnu_basename` or `__mlibc_gnu_basename_c`, so we undefine it.
 #if defined(AK_OS_LINUX) && defined(basename)
@@ -17,7 +18,7 @@
 
 namespace AK {
 
-class LexicalPath {
+class AK_API LexicalPath {
 public:
     enum StripExtension {
         No,

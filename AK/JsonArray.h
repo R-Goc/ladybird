@@ -8,13 +8,14 @@
 
 #include <AK/Concepts.h>
 #include <AK/Error.h>
+#include <AK/Export.h>
 #include <AK/JsonValue.h>
 #include <AK/String.h>
 #include <AK/Vector.h>
 
 namespace AK {
 
-class JsonArray {
+class AK_API JsonArray {
     template<typename Callback>
     using CallbackErrorType = decltype(declval<Callback>()(declval<JsonValue const&>()).release_error());
 

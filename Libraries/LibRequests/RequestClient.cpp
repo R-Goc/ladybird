@@ -55,7 +55,7 @@ void RequestClient::request_started(i32 request_id, IPC::File response_file)
         return;
     }
 
-    auto response_fd = response_file.take_fd();
+    auto response_fd = response_file.take_handle();
     request.value()->set_request_fd({}, response_fd);
 }
 

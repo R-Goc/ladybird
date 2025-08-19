@@ -6,6 +6,7 @@
  */
 
 #include <AK/ByteReader.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibIPC/HandleType.h>
 #include <LibIPC/TransportSocketWindows.h>
 
@@ -81,24 +82,24 @@ ErrorOr<void> TransportSocketWindows::duplicate_handles(Bytes bytes, Vector<size
                 return Error::from_string_literal("Not enough bytes for socket handle");
 
             // We stashed the bytes of this process's version of the handle at the offset location
-            int handle = -1;
+            SOCKET handle = INVALID_SOCKET;
             ByteReader::load(span.data(), handle);
 
             auto* pi = reinterpret_cast<WSAPROTOCOL_INFO*>(span.data());
             if (WSADuplicateSocket(handle, m_peer_pid, pi))
                 return Error::from_windows_error();
         } else {
-            if (span.size() < sizeof(int))
+            if (span.size() < sizeof(HANDLE))
                 return Error::from_string_literal("Not enough bytes for generic handle");
 
-            int handle = -1;
+            HANDLE handle = INVALID_HANDLE_VALUE;
             ByteReader::load(span.data(), handle);
 
             HANDLE new_handle = INVALID_HANDLE_VALUE;
-            if (!DuplicateHandle(GetCurrentProcess(), to_handle(handle), peer_process_handle, &new_handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+            if (!DuplicateHandle(GetCurrentProcess(), handle, peer_process_handle, &new_handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
                 return Error::from_windows_error();
 
-            ByteReader::store(span.data(), to_fd(new_handle));
+            ByteReader::store(span.data(), new_handle);
         }
     }
 
@@ -135,7 +136,7 @@ ErrorOr<void> TransportSocketWindows::transfer(ReadonlyBytes bytes_to_write)
                 return error;
 
             struct pollfd pollfd = {
-                .fd = static_cast<SOCKET>(m_socket->fd().value()),
+                .fd = m_socket->handle()->socket(),
                 .events = POLLOUT,
                 .revents = 0
             };
@@ -204,14 +205,14 @@ TransportSocketWindows::ShouldShutdown TransportSocketWindows::read_as_many_mess
     return should_shutdown;
 }
 
-ErrorOr<int> TransportSocketWindows::release_underlying_transport_for_transfer()
+ErrorOr<Core::PlatformHandle> TransportSocketWindows::release_underlying_transport_for_transfer()
 {
-    return m_socket->release_fd();
+    return m_socket->release_handle();
 }
 
 ErrorOr<IPC::File> TransportSocketWindows::clone_for_transfer()
 {
-    return IPC::File::clone_fd(m_socket->fd().value());
+    return IPC::File::clone_handle(m_socket->handle().value());
 }
 
 }

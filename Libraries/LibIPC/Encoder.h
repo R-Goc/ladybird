@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "LibCore/PlatformHandle.h"
 #include <AK/Concepts.h>
 #include <AK/HashMap.h>
 #include <AK/StdLibExtras.h>
@@ -50,9 +51,9 @@ public:
         return {};
     }
 
-    ErrorOr<void> append_file_descriptor(int fd)
+    ErrorOr<void> append_handle(Core::PlatformHandle const& handle)
     {
-        TRY(m_buffer.append_file_descriptor(fd));
+        TRY(m_buffer.append_handle(handle));
         return {};
     }
 
@@ -171,7 +172,7 @@ ErrorOr<void> encode(Encoder& encoder, T const& hashmap)
 template<Concepts::SharedSingleProducerCircularQueue T>
 ErrorOr<void> encode(Encoder& encoder, T const& queue)
 {
-    TRY(encoder.encode(TRY(IPC::File::clone_fd(queue.fd()))));
+    TRY(encoder.encode(TRY(IPC::File::clone_handle(queue.fd()))));
     return {};
 }
 

@@ -149,7 +149,7 @@ ErrorOr<Core::AnonymousBuffer> decode(Decoder& decoder)
     auto size = TRY(decoder.decode_size());
     auto anon_file = TRY(decoder.decode<IPC::File>());
 
-    return Core::AnonymousBuffer::create_from_anon_fd(anon_file.take_fd(), size);
+    return Core::AnonymousBuffer::create_from_anon_handle(anon_file.take_handle(), size);
 }
 
 template<>

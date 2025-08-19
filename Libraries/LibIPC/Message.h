@@ -9,6 +9,7 @@
 
 #include <AK/Error.h>
 #include <AK/Vector.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibIPC/AutoCloseFileDescriptor.h>
 #include <LibIPC/Forward.h>
 #include <LibIPC/Transport.h>
@@ -28,7 +29,7 @@ public:
     ErrorOr<void> extend_data_capacity(size_t capacity);
     ErrorOr<void> append_data(u8 const* values, size_t count);
 
-    ErrorOr<void> append_file_descriptor(int fd);
+    ErrorOr<void> append_handle(Core::PlatformHandle const& handle);
 
     ErrorOr<void> extend(MessageBuffer&& buffer);
 

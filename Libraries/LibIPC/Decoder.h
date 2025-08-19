@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "LibCore/PlatformHandle.h"
 #include <AK/ByteString.h>
 #include <AK/Concepts.h>
 #include <AK/Forward.h>
@@ -130,6 +131,9 @@ ErrorOr<Core::DateTime> decode(Decoder&);
 template<>
 ErrorOr<Core::ProxyData> decode(Decoder&);
 
+template<>
+ErrorOr<Core::PlatformHandle> decode(Decoder&);
+
 template<Concepts::Array T>
 ErrorOr<T> decode(Decoder& decoder)
 {
@@ -179,7 +183,7 @@ template<Concepts::SharedSingleProducerCircularQueue T>
 ErrorOr<T> decode(Decoder& decoder)
 {
     auto anon_file = TRY(decoder.decode<IPC::File>());
-    return T::create(anon_file.take_fd());
+    return T::create(anon_file.take_handle());
 }
 
 template<Concepts::Optional T>

@@ -10,6 +10,7 @@
 #include <AK/Noncopyable.h>
 #include <AK/StdLibExtras.h>
 #include <LibCore/File.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/System.h>
 
 namespace IPC {
@@ -22,45 +23,45 @@ public:
 
     static File adopt_file(NonnullOwnPtr<Core::File> file)
     {
-        return File(file->leak_fd());
+        return File(file->leak_handle());
     }
 
-    static File adopt_fd(int fd)
+    static File adopt_handle(Core::PlatformHandle handle)
     {
-        return File(fd);
+        return File(handle);
     }
 
-    static ErrorOr<File> clone_fd(int fd)
+    static ErrorOr<File> clone_handle(Core::PlatformHandle handle)
     {
-        int new_fd = TRY(Core::System::dup(fd));
-        return File(new_fd);
+        Core::PlatformHandle new_handle = TRY(Core::System::dup(handle));
+        return File(new_handle);
     }
 
     File(File&& other)
-        : m_fd(exchange(other.m_fd, -1))
+        : m_handle(exchange(other.m_handle, Core::PlatformHandle {}))
     {
     }
 
     File& operator=(File&& other)
     {
         if (this != &other) {
-            m_fd = exchange(other.m_fd, -1);
+            m_handle = exchange(other.m_handle, Core::PlatformHandle {});
         }
         return *this;
     }
 
     ~File()
     {
-        if (m_fd != -1)
-            (void)Core::System::close(m_fd);
+        if (m_handle.is_valid())
+            (void)Core::System::close(move(m_handle));
     }
 
-    int fd() const { return m_fd; }
+    Core::PlatformHandle handle() const { return m_handle; }
 
     // NOTE: This is 'const' since generated IPC messages expose all parameters by const reference.
-    [[nodiscard]] int take_fd() const
+    [[nodiscard]] Core::PlatformHandle take_handle() const
     {
-        return exchange(m_fd, -1);
+        return exchange(m_handle, Core::PlatformHandle {});
     }
 
     // FIXME: IPC::Files transferred over the wire are always set O_CLOEXEC during decoding.
@@ -68,16 +69,16 @@ public:
     //        make it O_CLOEXEC or not. Or an attribute in the .ipc file?
     ErrorOr<void> clear_close_on_exec()
     {
-        return Core::System::set_close_on_exec(m_fd, false);
+        return Core::System::set_close_on_exec(m_handle, false);
     }
 
 private:
-    explicit File(int fd)
-        : m_fd(fd)
+    explicit File(Core::PlatformHandle handle)
+        : m_handle(handle)
     {
     }
 
-    mutable int m_fd { -1 };
+    mutable Core::PlatformHandle m_handle;
 };
 
 }

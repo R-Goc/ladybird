@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "LibCore/PlatformHandle.h"
 #include <AK/ByteReader.h>
 #include <LibIPC/HandleType.h>
 #include <LibIPC/Message.h>
@@ -31,7 +32,7 @@ ErrorOr<void> MessageBuffer::append_data(u8 const* values, size_t count)
     return {};
 }
 
-ErrorOr<void> MessageBuffer::append_file_descriptor(int handle)
+ErrorOr<void> MessageBuffer::append_handle(Core::PlatformHandle const& handle)
 {
     TRY(m_fds.try_append(adopt_ref(*new AutoCloseFileDescriptor(handle))));
     TRY(m_handle_offsets.try_append(m_data.size()));
@@ -44,13 +45,13 @@ ErrorOr<void> MessageBuffer::append_file_descriptor(int handle)
         // It can't be duplicated here because it requires peer process pid, which only TransportSocketWindows knows about.
         WSAPROTOCOL_INFO pi = {};
         static_assert(sizeof(pi) >= sizeof(int));
-        ByteReader::store(reinterpret_cast<u8*>(&pi), handle);
+        ByteReader::store(reinterpret_cast<u8*>(&pi), handle.socket());
         TRY(m_data.try_append(reinterpret_cast<u8*>(&pi), sizeof(pi)));
     } else {
         auto type = HandleType::Generic;
         TRY(m_data.try_append(to_underlying(type)));
         // The handle will be overwritten by a duplicate handle later in TransportSocketWindows::transfer (for the same reason).
-        TRY(m_data.try_append(reinterpret_cast<u8*>(&handle), sizeof(handle)));
+        TRY(m_data.try_append(reinterpret_cast<u8*>(handle.file()), sizeof(handle.file())));
     }
     return {};
 }

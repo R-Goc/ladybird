@@ -18,6 +18,7 @@
 #include <AK/Utf16View.h>
 #include <LibCore/AnonymousBuffer.h>
 #include <LibCore/DateTime.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/Proxy.h>
 #include <LibCore/System.h>
 #include <LibIPC/Encoder.h>
@@ -157,9 +158,9 @@ ErrorOr<void> encode(Encoder& encoder, URL::Host const& host)
 template<>
 ErrorOr<void> encode(Encoder& encoder, File const& file)
 {
-    int fd = file.take_fd();
+    Core::PlatformHandle handle = file.take_handle();
 
-    TRY(encoder.append_file_descriptor(fd));
+    TRY(encoder.append_handle(handle));
     return {};
 }
 
@@ -176,7 +177,7 @@ ErrorOr<void> encode(Encoder& encoder, Core::AnonymousBuffer const& buffer)
 
     if (buffer.is_valid()) {
         TRY(encoder.encode_size(buffer.size()));
-        TRY(encoder.encode(TRY(IPC::File::clone_fd(buffer.fd()))));
+        TRY(encoder.encode(TRY(IPC::File::clone_handle(buffer.handle()))));
     }
 
     return {};

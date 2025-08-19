@@ -7,34 +7,30 @@
 #pragma once
 
 #include <AK/RefCounted.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/System.h>
 
 namespace IPC {
 
+// FIXME: Look if this even needs to exist with OwningPlatformHandle
 class AutoCloseFileDescriptor : public RefCounted<AutoCloseFileDescriptor> {
 public:
-    AutoCloseFileDescriptor(int fd)
-        : m_fd(fd)
+    AutoCloseFileDescriptor(Core::PlatformHandle handle)
+        : m_handle(handle)
     {
     }
 
-    ~AutoCloseFileDescriptor()
-    {
-        if (m_fd != -1)
-            (void)Core::System::close(m_fd);
-    }
+    ~AutoCloseFileDescriptor() = default;
 
-    int value() const { return m_fd; }
+    Core::PlatformHandle value() const { return m_handle; }
 
-    int take_fd()
+    Core::PlatformHandle take_handle()
     {
-        int fd = m_fd;
-        m_fd = -1;
-        return fd;
+        return m_handle.release();
     }
 
 private:
-    int m_fd;
+    Core::OwningPlatformHandle m_handle;
 };
 
 }

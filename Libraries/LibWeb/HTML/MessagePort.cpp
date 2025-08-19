@@ -6,6 +6,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "LibCore/PlatformHandle.h"
 #include <AK/ByteReader.h>
 #include <AK/MemoryStream.h>
 #include <LibCore/Socket.h>
@@ -107,7 +108,7 @@ WebIDL::ExceptionOr<void> MessagePort::transfer_steps(HTML::TransferDataEncoder&
         // 2. Set dataHolder.[[RemotePort]] to remotePort.
         // TODO: Mach IPC
         data_holder.encode(IPC_FILE_TAG);
-        data_holder.encode(IPC::File::adopt_fd(fd));
+        data_holder.encode(IPC::File::adopt_handle(fd));
     }
     // 4. Otherwise, set dataHolder.[[RemotePort]] to null.
     else {
@@ -130,8 +131,8 @@ WebIDL::ExceptionOr<void> MessagePort::transfer_receiving_steps(HTML::TransferDa
     //     (This will disentangle dataHolder.[[RemotePort]] from the original port that was transferred.)
     if (auto fd_tag = data_holder.decode<u8>(); fd_tag == IPC_FILE_TAG) {
         // TODO: Mach IPC
-        auto fd = data_holder.decode<IPC::File>();
-        m_transport = make<IPC::Transport>(MUST(Core::LocalSocket::adopt_fd(fd.take_fd())));
+        auto handle = data_holder.decode<IPC::File>();
+        m_transport = make<IPC::Transport>(MUST(Core::LocalSocket::adopt_handle(handle.take_handle())));
 
         m_transport->set_up_read_hook([strong_this = GC::make_root(this)]() {
             if (strong_this->m_enabled)
@@ -183,12 +184,12 @@ void MessagePort::entangle_with(MessagePort& remote_port)
 
     // FIXME: Abstract such that we can entangle different transport types
     auto create_paired_sockets = []() -> Array<NonnullOwnPtr<Core::LocalSocket>, 2> {
-        int fds[2] = {};
+        Core::PlatformHandle fds[2] = {};
         MUST(Core::System::socketpair(AF_LOCAL, SOCK_STREAM, 0, fds));
-        auto socket0 = MUST(Core::LocalSocket::adopt_fd(fds[0]));
+        auto socket0 = MUST(Core::LocalSocket::adopt_handle(fds[0]));
         MUST(socket0->set_blocking(false));
         MUST(socket0->set_close_on_exec(true));
-        auto socket1 = MUST(Core::LocalSocket::adopt_fd(fds[1]));
+        auto socket1 = MUST(Core::LocalSocket::adopt_handle(fds[1]));
         MUST(socket1->set_blocking(false));
         MUST(socket1->set_close_on_exec(true));
 

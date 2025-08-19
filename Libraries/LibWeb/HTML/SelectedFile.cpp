@@ -60,7 +60,7 @@ ErrorOr<Web::HTML::SelectedFile> IPC::decode(Decoder& decoder)
     ByteBuffer contents;
 
     if (file_or_contents.has<IPC::File>()) {
-        auto file = TRY(Core::File::adopt_fd(file_or_contents.get<IPC::File>().take_fd(), Core::File::OpenMode::Read));
+        auto file = TRY(Core::File::adopt_handle(file_or_contents.get<IPC::File>().take_handle(), Core::File::OpenMode::Read));
         contents = TRY(file->read_until_eof());
     } else {
         contents = move(file_or_contents.get<ByteBuffer>());

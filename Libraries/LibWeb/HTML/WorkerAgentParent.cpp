@@ -42,7 +42,7 @@ void WorkerAgentParent::initialize(JS::Realm& realm)
     //    If spinning the event loop for this can cause other javascript to execute, we're in trouble.
     auto worker_socket_file = Bindings::principal_host_defined_page(realm).client().request_worker_agent(m_agent_type);
 
-    auto worker_socket = MUST(Core::LocalSocket::adopt_fd(worker_socket_file.take_fd()));
+    auto worker_socket = MUST(Core::LocalSocket::adopt_handle(worker_socket_file.take_handle()));
     MUST(worker_socket->set_blocking(true));
 
     // TODO: Mach IPC

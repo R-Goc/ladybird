@@ -8,6 +8,7 @@
 
 #include <LibCore/EventReceiver.h>
 #include <LibCore/Notifier.h>
+#include <LibCore/PlatformHandle.h>
 
 namespace Core {
 
@@ -16,7 +17,7 @@ class LocalServer : public EventReceiver {
 public:
     virtual ~LocalServer() override;
 
-    ErrorOr<void> take_over_fd(int socket_fd);
+    ErrorOr<void> take_over_handle(OwningPlatformHandle handle);
     bool is_listening() const { return m_listening; }
     bool listen(ByteString const& address);
 
@@ -30,7 +31,7 @@ private:
 
     void setup_notifier();
 
-    int m_fd { -1 };
+    OwningPlatformHandle m_handle;
     bool m_listening { false };
     RefPtr<Notifier> m_notifier;
 };

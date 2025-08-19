@@ -16,12 +16,13 @@
 #include <AK/RefPtr.h>
 #include <AK/Vector.h>
 #include <LibCore/File.h>
+#include <LibCore/PlatformHandle.h>
 
 namespace Core {
 
 class ConfigFile : public RefCounted<ConfigFile> {
 public:
-    enum class AllowWriting {
+    enum class AllowWriting : u8 {
         Yes,
         No,
     };
@@ -30,7 +31,7 @@ public:
     static ErrorOr<NonnullRefPtr<ConfigFile>> open_for_app(ByteString const& app_name, AllowWriting = AllowWriting::No);
     static ErrorOr<NonnullRefPtr<ConfigFile>> open_for_system(ByteString const& app_name, AllowWriting = AllowWriting::No);
     static ErrorOr<NonnullRefPtr<ConfigFile>> open(ByteString const& filename, AllowWriting = AllowWriting::No);
-    static ErrorOr<NonnullRefPtr<ConfigFile>> open(ByteString const& filename, int fd);
+    static ErrorOr<NonnullRefPtr<ConfigFile>> open(ByteString const& filename, PlatformHandle handle);
     static ErrorOr<NonnullRefPtr<ConfigFile>> open(ByteString const& filename, NonnullOwnPtr<Core::File>);
     ~ConfigFile();
 

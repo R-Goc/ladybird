@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "LibCore/PlatformHandle.h"
 #include <AK/AtomicRefCounted.h>
 #include <AK/BuiltinWrappers.h>
 #include <AK/ByteString.h>
@@ -55,9 +56,9 @@ public:
     }
 
     // Uses an existing circular queue from given shared memory.
-    static ErrorOr<SharedSingleProducerCircularQueue<T, Size>> create(int fd)
+    static ErrorOr<SharedSingleProducerCircularQueue<T, Size>> create(PlatformHandle handle)
     {
-        auto anon_buf = TRY(AnonymousBuffer::create_from_anon_fd(fd, sizeof(SharedMemorySPCQ)));
+        auto anon_buf = TRY(AnonymousBuffer::create_from_anon_handle(handle, sizeof(SharedMemorySPCQ)));
         auto shared_queue = (SharedMemorySPCQ*)anon_buf.data<void>();
         return create_internal(anon_buf, shared_queue);
     }
@@ -189,7 +190,7 @@ private:
     {
         if (!shared_queue)
             return Error::from_string_literal("Unexpected error when creating shared queue from raw memory");
-        auto name = ByteString::formatted("SharedSingleProducerCircularQueue@{:x}", anon_buf.fd());
+        auto name = ByteString::formatted("SharedSingleProducerCircularQueue@{:x}", anon_buf.handle());
         dbgln_if(SHARED_QUEUE_DEBUG, "successfully mmapped {} at {:p}", name, shared_queue);
         auto ref_counted = new (nothrow) RefCountedSharedMemorySPCQ(anon_buf, shared_queue, move(name));
         return SharedSingleProducerCircularQueue<T, Size> { adopt_ref(*ref_counted) };

@@ -12,24 +12,25 @@
 #include <AK/RefCounted.h>
 #include <AK/RefPtr.h>
 #include <AK/Types.h>
+#include <LibCore/PlatformHandle.h>
 
 namespace Core {
 
 class AnonymousBufferImpl final : public RefCounted<AnonymousBufferImpl> {
 public:
     static ErrorOr<NonnullRefPtr<AnonymousBufferImpl>> create(size_t);
-    static ErrorOr<NonnullRefPtr<AnonymousBufferImpl>> create(int fd, size_t);
+    static ErrorOr<NonnullRefPtr<AnonymousBufferImpl>> create(PlatformHandle const& handle, size_t);
     ~AnonymousBufferImpl();
 
-    int fd() const { return m_fd; }
+    PlatformHandle handle() const { return m_handle; }
     size_t size() const { return m_size; }
     void* data() { return m_data; }
     void const* data() const { return m_data; }
 
 private:
-    AnonymousBufferImpl(int fd, size_t, void*);
+    AnonymousBufferImpl(PlatformHandle handle, size_t, void*);
 
-    int m_fd { -1 };
+    PlatformHandle m_handle;
     size_t m_size { 0 };
     void* m_data { nullptr };
 };
@@ -37,13 +38,13 @@ private:
 class AnonymousBuffer {
 public:
     static ErrorOr<AnonymousBuffer> create_with_size(size_t);
-    static ErrorOr<AnonymousBuffer> create_from_anon_fd(int fd, size_t);
+    static ErrorOr<AnonymousBuffer> create_from_anon_handle(PlatformHandle const& handle, size_t);
 
     AnonymousBuffer() = default;
 
     bool is_valid() const { return m_impl; }
 
-    int fd() const { return m_impl ? m_impl->fd() : -1; }
+    PlatformHandle handle() const { return m_impl ? m_impl->handle() : PlatformHandle {}; }
     size_t size() const { return m_impl ? m_impl->size() : 0; }
 
     template<typename T>

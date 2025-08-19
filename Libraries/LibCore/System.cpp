@@ -197,12 +197,12 @@ ErrorOr<int> anon_create([[maybe_unused]] size_t size, [[maybe_unused]] int opti
     return fd;
 }
 
-ErrorOr<int> open(StringView path, int options, mode_t mode)
+ErrorOr<OwningPlatformHandle> open(StringView path, int options, mode_t mode)
 {
     return openat(AT_FDCWD, path, options, mode);
 }
 
-ErrorOr<int> openat(int fd, StringView path, int options, mode_t mode)
+ErrorOr<OwningPlatformHandle> openat(int fd, StringView path, int options, mode_t mode)
 {
     if (!path.characters_without_null_termination())
         return Error::from_syscall("open"sv, EFAULT);
@@ -212,7 +212,7 @@ ErrorOr<int> openat(int fd, StringView path, int options, mode_t mode)
     int rc = ::openat(fd, path_string.characters(), options, mode);
     if (rc < 0)
         return Error::from_syscall("open"sv, errno);
-    return rc;
+    return OwningPlatformHandle { NativeFileType(rc) };
 }
 
 ErrorOr<void> close(int fd)
@@ -278,12 +278,21 @@ ErrorOr<void> kill(pid_t pid, int signal)
     return {};
 }
 
-ErrorOr<int> dup(int source_fd)
+ErrorOr<OwningPlatformHandle> dup(PlatformHandle const& source_handle)
 {
+    int source_fd = -1;
+    if (source_handle.is_file())
+        source_fd = source_handle.as_file().value();
+    else
+        source_fd = source_handle.as_socket().value();
+
     int fd = ::dup(source_fd);
     if (fd < 0)
         return Error::from_syscall("dup"sv, errno);
-    return fd;
+
+    if (source_handle.is_file())
+        return OwningPlatformHandle { NativeFileType(fd) };
+    return OwningPlatformHandle { NativeSocketType(fd) };
 }
 
 ErrorOr<int> dup2(int source_fd, int destination_fd)
@@ -528,12 +537,12 @@ ErrorOr<struct utsname> uname()
     return uts;
 }
 
-ErrorOr<int> socket(int domain, int type, int protocol)
+ErrorOr<OwningPlatformHandle> socket(int domain, int type, int protocol)
 {
     auto fd = ::socket(domain, type, protocol);
     if (fd < 0)
         return Error::from_syscall("socket"sv, errno);
-    return fd;
+    return OwningPlatformHandle { NativeSocketType(fd) };
 }
 
 ErrorOr<void> bind(int sockfd, struct sockaddr const* address, socklen_t address_length)

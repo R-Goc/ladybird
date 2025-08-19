@@ -12,6 +12,7 @@
 #include <AK/Stream.h>
 #include <AK/Time.h>
 #include <LibCore/Notifier.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/SocketAddress.h>
 
 namespace Core {
@@ -74,10 +75,10 @@ protected:
     {
     }
 
-    static ErrorOr<int> create_fd(SocketDomain, SocketType);
+    static ErrorOr<OwningPlatformHandle> create_fd(SocketDomain, SocketType);
 
-    static ErrorOr<void> connect_local(int fd, ByteString const& path);
-    static ErrorOr<void> connect_inet(int fd, SocketAddress const&);
+    static ErrorOr<void> connect_local(PlatformHandle const& socket, ByteString const& path);
+    static ErrorOr<void> connect_inet(PlatformHandle const& socket, SocketAddress const&);
 
     int default_flags() const
     {
@@ -122,21 +123,21 @@ public:
 
     PosixSocketHelper& operator=(PosixSocketHelper&& other)
     {
-        m_fd = exchange(other.m_fd, -1);
+        m_handle = move(other.m_handle);
         m_last_read_was_eof = exchange(other.m_last_read_was_eof, false);
         m_notifier = move(other.m_notifier);
         return *this;
     }
 
-    int fd() const { return m_fd; }
-    void set_fd(int fd) { m_fd = fd; }
+    PlatformHandle const& handle() const { return m_handle; }
+    void set_handle(PlatformHandle handle) { m_handle = move(handle); }
 
     ErrorOr<Bytes> read(Bytes, int flags);
     ErrorOr<size_t> write(ReadonlyBytes, int flags);
 
     bool is_eof() const { return !is_open() || m_last_read_was_eof; }
     void did_reach_eof_on_read();
-    bool is_open() const { return m_fd != -1; }
+    bool is_open() const { return m_handle.is_valid(); }
     void close();
 
     ErrorOr<size_t> pending_bytes() const;
@@ -150,7 +151,7 @@ public:
     RefPtr<Core::Notifier> notifier() { return m_notifier; }
 
 private:
-    int m_fd { -1 };
+    OwningPlatformHandle m_handle;
     bool m_last_read_was_eof { false };
     RefPtr<Core::Notifier> m_notifier;
 };
@@ -160,7 +161,7 @@ public:
     static ErrorOr<NonnullOwnPtr<TCPSocket>> connect(ByteString const& host, u16 port);
     static ErrorOr<NonnullOwnPtr<TCPSocket>> connect(SocketAddress const& address);
     static ErrorOr<NonnullOwnPtr<TCPSocket>> connect(SocketAddress const& address, ByteString const&) { return connect(address); }
-    static ErrorOr<NonnullOwnPtr<TCPSocket>> adopt_fd(int fd);
+    static ErrorOr<NonnullOwnPtr<TCPSocket>> adopt_handle(PlatformHandle handle);
 
     TCPSocket(TCPSocket&& other)
         : Socket(static_cast<Socket&&>(other))
@@ -195,7 +196,7 @@ public:
     ErrorOr<void> set_blocking(bool enabled) override { return m_helper.set_blocking(enabled); }
     ErrorOr<void> set_close_on_exec(bool enabled) override { return m_helper.set_close_on_exec(enabled); }
 
-    int fd() const { return m_helper.fd(); }
+    PlatformHandle const& handle() const { return m_helper.handle(); }
 
     virtual ~TCPSocket() override { close(); }
 
@@ -283,7 +284,7 @@ private:
 class LocalSocket final : public Socket {
 public:
     static ErrorOr<NonnullOwnPtr<LocalSocket>> connect(ByteString const& path, PreventSIGPIPE = PreventSIGPIPE::Yes);
-    static ErrorOr<NonnullOwnPtr<LocalSocket>> adopt_fd(int fd, PreventSIGPIPE = PreventSIGPIPE::Yes);
+    static ErrorOr<NonnullOwnPtr<LocalSocket>> adopt_handle(PlatformHandle handle, PreventSIGPIPE = PreventSIGPIPE::Yes);
 
     LocalSocket(LocalSocket&& other)
         : Socket(static_cast<Socket&&>(other))
@@ -327,13 +328,14 @@ public:
     ErrorOr<pid_t> peer_pid() const;
     ErrorOr<Bytes> read_without_waiting(Bytes buffer);
 
-    /// Release the fd associated with this LocalSocket. After the fd is
+    /// Release the handle associated with this LocalSocket. After the handle is
     /// released, the socket will be considered "closed" and all operations done
     /// on it will fail with ENOTCONN. Fails with ENOTCONN if the socket is
     /// already closed.
-    ErrorOr<int> release_fd();
+    ErrorOr<PlatformHandle> release_handle();
 
-    Optional<int> fd() const;
+    Optional<PlatformHandle const&> handle() const;
+
     RefPtr<Core::Notifier> notifier() { return m_helper.notifier(); }
 
     virtual ~LocalSocket() { close(); }

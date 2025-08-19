@@ -178,10 +178,12 @@ public:
         return m_handle.visit(forward<Visitors>(visitors)...);
     }
 
-    // Leaves in a moved from state
+    // Leaves the handle as InvalidHandle
     PlatformHandle release()
     {
-        return move(m_handle);
+        auto temp = m_handle;
+        m_handle = PlatformHandle {};
+        return temp;
     }
 
     PlatformHandle& handle()
@@ -195,7 +197,7 @@ public:
         return m_handle;
     }
 
-    // Leaves m_handle in a moved from state.
+    // Leaves m_handle as InvalidHandle
     void close();
 
 private:

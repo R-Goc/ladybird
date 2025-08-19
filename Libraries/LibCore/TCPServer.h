@@ -10,6 +10,7 @@
 #include <AK/IPv4Address.h>
 #include <LibCore/EventReceiver.h>
 #include <LibCore/Notifier.h>
+#include <LibCore/PlatformHandle.h>
 
 namespace Core {
 
@@ -36,9 +37,9 @@ public:
     Function<void()> on_ready_to_accept;
 
 private:
-    explicit TCPServer(int fd);
+    explicit TCPServer(OwningPlatformHandle handle);
 
-    int m_fd { -1 };
+    OwningPlatformHandle m_handle;
     bool m_listening { false };
     RefPtr<Notifier> m_notifier;
 };

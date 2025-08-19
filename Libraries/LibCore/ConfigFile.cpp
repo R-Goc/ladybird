@@ -10,6 +10,7 @@
 #include <AK/StringBuilder.h>
 #include <LibCore/ConfigFile.h>
 #include <LibCore/Directory.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/StandardPaths.h>
 #include <LibCore/System.h>
 
@@ -55,9 +56,9 @@ ErrorOr<NonnullRefPtr<ConfigFile>> ConfigFile::open(ByteString const& filename, 
     return config_file;
 }
 
-ErrorOr<NonnullRefPtr<ConfigFile>> ConfigFile::open(ByteString const& filename, int fd)
+ErrorOr<NonnullRefPtr<ConfigFile>> ConfigFile::open(ByteString const& filename, PlatformHandle handle)
 {
-    auto file = TRY(File::adopt_fd(fd, File::OpenMode::ReadWrite));
+    auto file = TRY(File::adopt_handle(handle, File::OpenMode::ReadWrite));
     return open(filename, move(file));
 }
 

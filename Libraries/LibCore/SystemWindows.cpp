@@ -6,14 +6,20 @@
  * Copyright (c) 2023, Cameron Youell <cameronyouell@gmail.com>
  * Copyright (c) 2024-2025, stasoid <stasoid@yahoo.com>
  * Copyright (c) 2025, ayeteadoe <ayeteadoe@gmail.com>
+ * Copyright (c) 2025, Ryszard Goc <ryszardgoc@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "AK/Format.h"
+#include <AK/Assertions.h>
 #include <AK/ByteString.h>
+#include <AK/Error.h>
 #include <AK/ScopeGuard.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/Process.h>
 #include <LibCore/System.h>
+#include <cerrno>
 #include <direct.h>
 #include <sys/mman.h>
 
@@ -41,82 +47,92 @@ static int init_crt_and_wsa()
 
 static auto dummy = init_crt_and_wsa();
 
-ErrorOr<int> open(StringView path, int options, mode_t mode)
+ErrorOr<OwningPlatformHandle> open(StringView path, int options, mode_t mode)
 {
     ByteString str = path;
     int fd = _open(str.characters(), options | O_BINARY | _O_OBTAIN_DIR, mode);
     if (fd < 0)
         return Error::from_syscall("open"sv, errno);
     ScopeGuard guard = [&] { _close(fd); };
-    return dup(_get_osfhandle(fd));
+    return dup(PlatformHandle { _get_osfhandle(fd) });
 }
 
-ErrorOr<void> close(int handle)
+ErrorOr<void> close(PlatformHandle&& handle)
 {
-    if (is_socket(handle)) {
-        if (closesocket(handle))
-            return Error::from_windows_error();
-    } else {
-        if (!CloseHandle(to_handle(handle)))
-            return Error::from_windows_error();
-    }
-    return {};
+    return handle.visit(
+        [](InvalidHandle) -> ErrorOr<void> {
+            // TODO: Return an error that makes sense here.
+            VERIFY_NOT_REACHED();
+            return {};
+        },
+        [](NativeFileType file)
+            -> ErrorOr<void> {
+            if (!CloseHandle(file)) {
+                return Error::from_windows_error();
+            }
+            return {};
+        },
+        [](NativeSocketType socket) -> ErrorOr<void> {
+            if (closesocket(socket))
+                return Error::from_windows_error();
+            return {};
+        });
 }
 
-ErrorOr<ssize_t> read(int handle, Bytes buffer)
+ErrorOr<ssize_t> read(PlatformHandle const& handle, Bytes buffer)
 {
     DWORD n_read = 0;
-    if (!ReadFile(to_handle(handle), buffer.data(), buffer.size(), &n_read, NULL))
+    if (!ReadFile(handle.file(), buffer.data(), buffer.size(), &n_read, NULL))
         return Error::from_windows_error();
     return n_read;
 }
 
-ErrorOr<ssize_t> write(int handle, ReadonlyBytes buffer)
+ErrorOr<ssize_t> write(PlatformHandle const& handle, ReadonlyBytes buffer)
 {
     DWORD n_written = 0;
-    if (!WriteFile(to_handle(handle), buffer.data(), buffer.size(), &n_written, NULL))
+    if (!WriteFile(handle.file(), buffer.data(), buffer.size(), &n_written, NULL))
         return Error::from_windows_error();
     return n_written;
 }
 
-ErrorOr<off_t> lseek(int handle, off_t offset, int origin)
+ErrorOr<off_t> lseek(PlatformHandle const& handle, off_t offset, int origin)
 {
     static_assert(FILE_BEGIN == SEEK_SET && FILE_CURRENT == SEEK_CUR && FILE_END == SEEK_END, "SetFilePointerEx origin values are incompatible with lseek");
     LARGE_INTEGER new_pointer = {};
-    if (!SetFilePointerEx(to_handle(handle), { .QuadPart = offset }, &new_pointer, origin))
+    if (!SetFilePointerEx(handle.file(), { .QuadPart = offset }, &new_pointer, origin))
         return Error::from_windows_error();
     return new_pointer.QuadPart;
 }
 
-ErrorOr<void> ftruncate(int handle, off_t length)
+ErrorOr<void> ftruncate(PlatformHandle const& handle, off_t length)
 {
     auto position = TRY(lseek(handle, 0, SEEK_CUR));
     ScopeGuard restore_position = [&] { MUST(lseek(handle, position, SEEK_SET)); };
 
     TRY(lseek(handle, length, SEEK_SET));
 
-    if (!SetEndOfFile(to_handle(handle)))
+    if (!SetEndOfFile(handle.file()))
         return Error::from_windows_error();
     return {};
 }
 
-ErrorOr<struct stat> fstat(int handle)
+ErrorOr<struct stat> fstat(PlatformHandle const& handle)
 {
     struct stat st = {};
-    int fd = _open_osfhandle(TRY(dup(handle)), 0);
+    int fd = _open_osfhandle(TRY(dup(handle)).release(), 0);
     ScopeGuard guard = [&] { _close(fd); };
     if (::fstat(fd, &st) < 0)
         return Error::from_syscall("fstat"sv, errno);
     return st;
 }
 
-ErrorOr<void> ioctl(int fd, unsigned request, ...)
+ErrorOr<void> ioctl(PlatformHandle const& handle, unsigned request, ...)
 {
     va_list ap;
     va_start(ap, request);
     u_long arg = va_arg(ap, FlatPtr);
     va_end(ap);
-    if (::ioctlsocket(fd, request, &arg) == SOCKET_ERROR)
+    if (::ioctlsocket(handle.socket(), request, &arg) == SOCKET_ERROR)
         return Error::from_windows_error();
     return {};
 }
@@ -185,24 +201,25 @@ ErrorOr<void> mkdir(StringView path, mode_t)
     return {};
 }
 
-ErrorOr<int> openat(int, StringView, int, mode_t)
+ErrorOr<OwningPlatformHandle> openat(int, StringView, int, mode_t)
 {
     dbgln("Core::System::openat() is not implemented");
     VERIFY_NOT_REACHED();
 }
 
-ErrorOr<struct stat> fstatat(int, StringView, int)
+ErrorOr<struct stat> fstatat(PlatformHandle const&, StringView, int)
 {
     dbgln("Core::System::fstatat() is not implemented");
     VERIFY_NOT_REACHED();
 }
 
-ErrorOr<void*> mmap(void* address, size_t size, int protection, int flags, int file_handle, off_t offset, size_t alignment, StringView)
+ErrorOr<void*> mmap(void* address, size_t size, int protection, int flags, PlatformHandle const& file, off_t offset, size_t alignment, StringView)
 {
     // custom alignment is not supported
     VERIFY(!alignment);
-    int fd = _open_osfhandle(TRY(dup(file_handle)), 0);
-    ScopeGuard guard = [&] { _close(fd); };
+    int fd = _open_osfhandle(reinterpret_cast<intptr_t>(TRY(dup(file)).file()), 0);
+    ScopeGuard guard
+        = [&] { _close(fd); };
     void* ptr = ::mmap(address, size, protection, flags, fd, offset);
     if (ptr == MAP_FAILED)
         return Error::from_syscall("mmap"sv, errno);
@@ -221,43 +238,42 @@ int getpid()
     return GetCurrentProcessId();
 }
 
-ErrorOr<int> dup(int handle)
+ErrorOr<OwningPlatformHandle> dup(PlatformHandle const& handle)
 {
-    if (handle < 0) {
+    if (!handle.is_valid())
         return Error::from_windows_error(ERROR_INVALID_HANDLE);
-    }
-    if (is_socket(handle)) {
+
+    if (handle.is_socket()) {
         WSAPROTOCOL_INFO pi = {};
-        if (WSADuplicateSocket(handle, GetCurrentProcessId(), &pi))
+        if (WSADuplicateSocket(handle.socket(), GetCurrentProcessId(), &pi))
             return Error::from_windows_error();
         SOCKET socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, &pi, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
         if (socket == INVALID_SOCKET)
             return Error::from_windows_error();
-        return socket;
-    } else {
-        HANDLE new_handle = 0;
-        if (!DuplicateHandle(GetCurrentProcess(), to_handle(handle), GetCurrentProcess(), &new_handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
-            return Error::from_windows_error();
-        return to_fd(new_handle);
+        return OwningPlatformHandle { socket };
     }
+    HANDLE new_handle = 0;
+    if (!DuplicateHandle(GetCurrentProcess(), handle.file(), GetCurrentProcess(), &new_handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        return Error::from_windows_error();
+    return OwningPlatformHandle { new_handle };
 }
 
-bool is_socket(int handle)
+bool is_socket(PlatformHandle const& handle)
 {
     // FILE_TYPE_PIPE is returned for sockets and pipes. We don't use Windows pipes.
-    return GetFileType(to_handle(handle)) == FILE_TYPE_PIPE;
+    return GetFileType(handle.file()) == FILE_TYPE_PIPE;
 }
 
-ErrorOr<void> bind(int sockfd, struct sockaddr const* name, socklen_t name_size)
+ErrorOr<void> bind(PlatformHandle const& sock_handle, struct sockaddr const* name, socklen_t name_size)
 {
-    if (::bind(sockfd, name, name_size) == SOCKET_ERROR)
+    if (::bind(sock_handle.socket(), name, name_size) == SOCKET_ERROR)
         return Error::from_windows_error();
     return {};
 }
 
-ErrorOr<void> listen(int sockfd, int backlog)
+ErrorOr<void> listen(PlatformHandle const& sock_handle, int backlog)
 {
-    if (::listen(sockfd, backlog) == SOCKET_ERROR)
+    if (::listen(sock_handle.socket(), backlog) == SOCKET_ERROR)
         return Error::from_windows_error();
     return {};
 }
@@ -286,21 +302,21 @@ ErrorOr<ssize_t> recvfrom(int sockfd, void* buffer, size_t buffer_length, int fl
     return received;
 }
 
-ErrorOr<void> getsockname(int sockfd, struct sockaddr* name, socklen_t* name_size)
+ErrorOr<void> getsockname(PlatformHandle const& sock_handle, struct sockaddr* name, socklen_t* name_size)
 {
-    if (::getsockname(sockfd, name, name_size) == SOCKET_ERROR)
+    if (::getsockname(sock_handle.socket(), name, name_size) == SOCKET_ERROR)
         return Error::from_windows_error();
     return {};
 }
 
-ErrorOr<void> setsockopt(int sockfd, int level, int option, void const* value, socklen_t value_size)
+ErrorOr<void> setsockopt(PlatformHandle const& sock_handle, int level, int option, void const* value, socklen_t value_size)
 {
-    if (::setsockopt(sockfd, level, option, static_cast<char const*>(value), value_size) == SOCKET_ERROR)
+    if (::setsockopt(sock_handle.socket(), level, option, static_cast<char const*>(value), value_size) == SOCKET_ERROR)
         return Error::from_windows_error();
     return {};
 }
 
-ErrorOr<void> socketpair(int domain, int type, int protocol, int sv[2])
+ErrorOr<void> socketpair(int domain, int type, int protocol, PlatformHandle sv[2])
 {
     if (domain != AF_LOCAL || type != SOCK_STREAM || protocol != 0)
         return Error::from_string_literal("Unsupported argument value");
@@ -309,8 +325,8 @@ ErrorOr<void> socketpair(int domain, int type, int protocol, int sv[2])
     if (windows_socketpair(socks, true))
         return Error::from_windows_error();
 
-    sv[0] = socks[0];
-    sv[1] = socks[1];
+    sv[0] = PlatformHandle::from_socket(socks[0]);
+    sv[1] = PlatformHandle::from_socket(socks[1]);
     return {};
 }
 
@@ -341,10 +357,17 @@ ErrorOr<ByteString> current_executable_path()
     return TRY(Process::get_name()).to_byte_string();
 }
 
-ErrorOr<void> set_close_on_exec(int handle, bool enabled)
+ErrorOr<void> set_close_on_exec(PlatformHandle const& handle, bool enabled)
 {
-    if (!SetHandleInformation(to_handle(handle), HANDLE_FLAG_INHERIT, enabled ? 0 : HANDLE_FLAG_INHERIT))
-        return Error::from_windows_error();
+    if (handle.is_file()) {
+        if (!SetHandleInformation(handle.file(), HANDLE_FLAG_INHERIT, enabled ? 0 : HANDLE_FLAG_INHERIT))
+            return Error::from_windows_error();
+    } else if (handle.is_socket()) {
+        if (!SetHandleInformation(reinterpret_cast<HANDLE>(handle.socket()), HANDLE_FLAG_INHERIT, enabled ? 0 : HANDLE_FLAG_INHERIT))
+            return Error::from_windows_error();
+    } else {
+        return Error::from_windows_error(EINVAL);
+    }
     return {};
 }
 
@@ -353,12 +376,12 @@ ErrorOr<bool> isatty(int handle)
     return GetFileType(to_handle(handle)) == FILE_TYPE_CHAR;
 }
 
-ErrorOr<int> socket(int domain, int type, int protocol)
+ErrorOr<OwningPlatformHandle> socket(int domain, int type, int protocol)
 {
     auto socket = ::socket(domain, type, protocol);
     if (socket == INVALID_SOCKET)
         return Error::from_windows_error();
-    return socket;
+    return OwningPlatformHandle { socket };
 }
 
 ErrorOr<AddressInfoVector> getaddrinfo(char const* nodename, char const* servname, struct addrinfo const& hints)
@@ -377,9 +400,9 @@ ErrorOr<AddressInfoVector> getaddrinfo(char const* nodename, char const* servnam
     return AddressInfoVector { move(addresses), results };
 }
 
-ErrorOr<void> connect(int socket, struct sockaddr const* address, socklen_t address_length)
+ErrorOr<void> connect(PlatformHandle const& sock_handle, struct sockaddr const* address, socklen_t address_length)
 {
-    if (::connect(socket, address, address_length) == SOCKET_ERROR)
+    if (::connect(sock_handle.socket(), address, address_length) == SOCKET_ERROR)
         return Error::from_windows_error();
     return {};
 }

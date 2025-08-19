@@ -2,6 +2,7 @@
  * Copyright (c) 2021, Andreas Kling <andreas@ladybird.org>
  * Copyright (c) 2021-2022, Kenneth Myhra <kennethmyhra@serenityos.org>
  * Copyright (c) 2021-2024, Sam Atkins <atkinssj@serenityos.org>
+ * Copyright (c) 2025, Ryszard Goc <ryszardgpc@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -13,6 +14,7 @@
 #include <AK/OwnPtr.h>
 #include <AK/StringView.h>
 #include <AK/Vector.h>
+#include <LibCore/PlatformHandle.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -70,28 +72,28 @@ ErrorOr<sig_t> signal(int signal, sig_t handler);
 #else
 ErrorOr<sighandler_t> signal(int signal, sighandler_t handler);
 #endif
-ErrorOr<struct stat> fstat(int fd);
-ErrorOr<struct stat> fstatat(int fd, StringView path, int flags);
+ErrorOr<struct stat> fstat(PlatformHandle const& handle);
+ErrorOr<struct stat> fstatat(PlatformHandle const& handle, StringView path, int flags);
 ErrorOr<int> fcntl(int fd, int command, ...);
-ErrorOr<void*> mmap(void* address, size_t, int protection, int flags, int fd, off_t, size_t alignment = 0, StringView name = {});
+ErrorOr<void*> mmap(void* address, size_t, int protection, int flags, PlatformHandle const& fd, off_t, size_t alignment = 0, StringView name = {});
 ErrorOr<void> munmap(void* address, size_t);
 ErrorOr<int> anon_create(size_t size, int options);
-ErrorOr<int> open(StringView path, int options, mode_t mode = 0);
-ErrorOr<int> openat(int fd, StringView path, int options, mode_t mode = 0);
-ErrorOr<void> close(int fd);
-ErrorOr<void> ftruncate(int fd, off_t length);
+ErrorOr<OwningPlatformHandle> open(StringView path, int options, mode_t mode = 0);
+ErrorOr<OwningPlatformHandle> openat(int fd, StringView path, int options, mode_t mode = 0);
+ErrorOr<void> close(PlatformHandle&& handle);
+ErrorOr<void> ftruncate(PlatformHandle const& handle, off_t length);
 ErrorOr<struct stat> stat(StringView path);
 ErrorOr<struct stat> lstat(StringView path);
-ErrorOr<ssize_t> read(int fd, Bytes buffer);
-ErrorOr<ssize_t> write(int fd, ReadonlyBytes buffer);
-ErrorOr<int> dup(int source_fd);
+ErrorOr<ssize_t> read(PlatformHandle const&, Bytes buffer);
+ErrorOr<ssize_t> write(PlatformHandle const&, ReadonlyBytes buffer);
+ErrorOr<OwningPlatformHandle> dup(PlatformHandle const& source_fd);
 ErrorOr<int> dup2(int source_fd, int destination_fd);
 ErrorOr<ByteString> getcwd();
-ErrorOr<void> ioctl(int fd, unsigned request, ...);
+ErrorOr<void> ioctl(PlatformHandle const&, unsigned request, ...);
 ErrorOr<struct termios> tcgetattr(int fd);
 ErrorOr<void> tcsetattr(int fd, int optional_actions, struct termios const&);
 ErrorOr<void> chmod(StringView pathname, mode_t mode);
-ErrorOr<off_t> lseek(int fd, off_t, int whence);
+ErrorOr<off_t> lseek(PlatformHandle const& handle, off_t, int whence);
 
 ErrorOr<bool> isatty(int fd);
 ErrorOr<void> link(StringView old_path, StringView new_path);
@@ -107,11 +109,11 @@ ErrorOr<void> unlink(StringView path);
 ErrorOr<void> utimensat(int fd, StringView path, struct timespec const times[2], int flag);
 ErrorOr<Array<int, 2>> pipe2(int flags);
 
-ErrorOr<int> socket(int domain, int type, int protocol);
-ErrorOr<void> bind(int sockfd, struct sockaddr const*, socklen_t);
-ErrorOr<void> listen(int sockfd, int backlog);
+ErrorOr<OwningPlatformHandle> socket(int domain, int type, int protocol);
+ErrorOr<void> bind(PlatformHandle const& sock_handle, struct sockaddr const*, socklen_t);
+ErrorOr<void> listen(PlatformHandle const& sock_handle, int backlog);
 ErrorOr<int> accept(int sockfd, struct sockaddr*, socklen_t*);
-ErrorOr<void> connect(int sockfd, struct sockaddr const*, socklen_t);
+ErrorOr<void> connect(PlatformHandle const& sock_handle, struct sockaddr const*, socklen_t);
 ErrorOr<ssize_t> send(int sockfd, void const*, size_t, int flags);
 ErrorOr<ssize_t> sendmsg(int sockfd, const struct msghdr*, int flags);
 ErrorOr<ssize_t> sendto(int sockfd, void const*, size_t, int flags, struct sockaddr const*, socklen_t);
@@ -119,10 +121,10 @@ ErrorOr<ssize_t> recv(int sockfd, void*, size_t, int flags);
 ErrorOr<ssize_t> recvmsg(int sockfd, struct msghdr*, int flags);
 ErrorOr<ssize_t> recvfrom(int sockfd, void*, size_t, int flags, struct sockaddr*, socklen_t*);
 ErrorOr<void> getsockopt(int sockfd, int level, int option, void* value, socklen_t* value_size);
-ErrorOr<void> setsockopt(int sockfd, int level, int option, void const* value, socklen_t value_size);
-ErrorOr<void> getsockname(int sockfd, struct sockaddr*, socklen_t*);
+ErrorOr<void> setsockopt(PlatformHandle const& sock_handle, int level, int option, void const* value, socklen_t value_size);
+ErrorOr<void> getsockname(PlatformHandle const& sock_handle, struct sockaddr*, socklen_t*);
 ErrorOr<void> getpeername(int sockfd, struct sockaddr*, socklen_t*);
-ErrorOr<void> socketpair(int domain, int type, int protocol, int sv[2]);
+ErrorOr<void> socketpair(int domain, int type, int protocol, PlatformHandle sv[2]);
 
 ErrorOr<void> access(StringView pathname, int mode, int flags = 0);
 ErrorOr<ByteString> readlink(StringView pathname);
@@ -186,8 +188,8 @@ ErrorOr<void> set_resource_limits(int resource, rlim_t limit);
 #endif
 
 int getpid();
-bool is_socket(int fd);
+bool is_socket(PlatformHandle const& handle);
 ErrorOr<void> sleep_ms(u32 milliseconds);
-ErrorOr<void> set_close_on_exec(int fd, bool enabled);
+ErrorOr<void> set_close_on_exec(PlatformHandle const&, bool enabled);
 
 }

@@ -12,6 +12,7 @@
 #include <AK/Function.h>
 #include <LibCore/EventReceiver.h>
 #include <LibCore/Forward.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/SocketAddress.h>
 
 namespace Core {
@@ -36,7 +37,7 @@ public:
     Optional<IPv4Address> local_address() const;
     Optional<u16> local_port() const;
 
-    int fd() const { return m_fd; }
+    OwningPlatformHandle const& handle() const { return m_handle; }
 
     Function<void()> on_ready_to_receive;
 
@@ -44,7 +45,7 @@ protected:
     UDPServer();
 
 private:
-    int m_fd { -1 };
+    OwningPlatformHandle m_handle;
     bool m_bound { false };
     RefPtr<Notifier> m_notifier;
 };

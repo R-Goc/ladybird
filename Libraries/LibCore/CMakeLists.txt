@@ -9,6 +9,7 @@ set(SOURCES
     File.cpp
     StandardPaths.cpp
     Version.cpp
+    PlatformHandle.cpp
 )
 
 if (WIN32)

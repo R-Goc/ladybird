@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/Socket.h>
 #include <LibCore/System.h>
 
@@ -39,7 +40,7 @@ ErrorOr<Bytes> PosixSocketHelper::read(Bytes buffer, int flags)
     DWORD nread = 0;
     DWORD fl = 0;
 
-    if (WSARecv(m_fd, &buf, 1, &nread, &fl, NULL, NULL) == SOCKET_ERROR) {
+    if (WSARecv(m_handle.socket(), &buf, 1, &nread, &fl, NULL, NULL) == SOCKET_ERROR) {
         if (GetLastError() == WSAECONNRESET)
             return Error::from_errno(ECONNRESET);
         return Error::from_windows_error();
@@ -72,7 +73,7 @@ ErrorOr<size_t> PosixSocketHelper::write(ReadonlyBytes buffer, int flags)
     WSABUF buf = make_wsa_buf(buffer);
     DWORD nwritten = 0;
 
-    if (WSASend(m_fd, &buf, 1, &nwritten, 0, NULL, NULL) == SOCKET_ERROR)
+    if (WSASend(m_handle.socket(), &buf, 1, &nwritten, 0, NULL, NULL) == SOCKET_ERROR)
         return Error::from_windows_error();
 
     return nwritten;
@@ -81,7 +82,7 @@ ErrorOr<size_t> PosixSocketHelper::write(ReadonlyBytes buffer, int flags)
 ErrorOr<bool> PosixSocketHelper::can_read_without_blocking(int timeout) const
 {
     struct pollfd pollfd = {
-        .fd = static_cast<SOCKET>(m_fd),
+        .fd = m_handle.socket(),
         .events = POLLIN,
         .revents = 0
     };
@@ -101,13 +102,13 @@ ErrorOr<void> PosixSocketHelper::set_blocking(bool)
 
 ErrorOr<void> PosixSocketHelper::set_close_on_exec(bool enabled)
 {
-    return System::set_close_on_exec(m_fd, enabled);
+    return System::set_close_on_exec(m_handle, enabled);
 }
 
 ErrorOr<void> PosixSocketHelper::set_receive_timeout(AK::Duration timeout)
 {
     auto timeout_spec = timeout.to_timespec();
-    return System::setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout_spec, sizeof(timeout_spec));
+    return System::setsockopt(m_handle, SOL_SOCKET, SO_RCVTIMEO, &timeout_spec, sizeof(timeout_spec));
 }
 
 ErrorOr<size_t> PosixSocketHelper::pending_bytes() const
@@ -117,14 +118,14 @@ ErrorOr<size_t> PosixSocketHelper::pending_bytes() const
     }
 
     u_long value;
-    TRY(System::ioctl(m_fd, FIONREAD, &value));
+    TRY(System::ioctl(m_handle, FIONREAD, &value));
     return value;
 }
 
 void PosixSocketHelper::setup_notifier()
 {
     if (!m_notifier)
-        m_notifier = Notifier::construct(m_fd, Notifier::Type::Read);
+        m_notifier = Notifier::construct(m_handle.socket(), Notifier::Type::Read);
 }
 
 void PosixSocketHelper::close()
@@ -136,9 +137,9 @@ void PosixSocketHelper::close()
         m_notifier->set_enabled(false);
 
     // shutdown is required for another end to receive FD_CLOSE
-    shutdown(m_fd, SD_BOTH);
-    MUST(System::close(m_fd));
-    m_fd = -1;
+    shutdown(m_handle.socket(), SD_BOTH);
+    m_handle.close();
+    m_handle.set_invalid();
 }
 
 ErrorOr<Bytes> LocalSocket::read_without_waiting(Bytes buffer)
@@ -146,49 +147,49 @@ ErrorOr<Bytes> LocalSocket::read_without_waiting(Bytes buffer)
     return m_helper.read(buffer, MSG_DONTWAIT);
 }
 
-ErrorOr<NonnullOwnPtr<LocalSocket>> LocalSocket::adopt_fd(int fd, PreventSIGPIPE prevent_sigpipe)
+ErrorOr<NonnullOwnPtr<LocalSocket>> LocalSocket::adopt_handle(PlatformHandle handle, PreventSIGPIPE prevent_sigpipe)
 {
-    if (fd == -1)
+    if (!handle.is_valid())
         return Error::from_errno(EBADF);
 
     auto socket = adopt_own(*new LocalSocket(prevent_sigpipe));
-    socket->m_helper.set_fd(fd);
+    socket->m_helper.set_handle(move(handle));
     socket->setup_notifier();
     return socket;
 }
 
-Optional<int> LocalSocket::fd() const
+Optional<PlatformHandle const&> LocalSocket::handle() const
 {
     if (!is_open())
         return {};
-    return m_helper.fd();
+    return m_helper.handle();
 }
 
-ErrorOr<int> LocalSocket::release_fd()
+ErrorOr<PlatformHandle> LocalSocket::release_handle()
 {
     if (!is_open()) {
         return Error::from_errno(ENOTCONN);
     }
 
-    auto fd = m_helper.fd();
-    m_helper.set_fd(-1);
-    return fd;
+    auto handle = m_helper.handle();
+    m_helper.set_handle(PlatformHandle());
+    return handle;
 }
 
 ErrorOr<NonnullOwnPtr<LocalSocket>> LocalSocket::connect(ByteString const& path, PreventSIGPIPE prevent_sigpipe)
 {
     auto socket = TRY(adopt_nonnull_own_or_enomem(new (nothrow) LocalSocket(prevent_sigpipe)));
 
-    auto fd = TRY(create_fd(SocketDomain::Local, SocketType::Stream));
-    socket->m_helper.set_fd(fd);
+    auto handle = TRY(create_fd(SocketDomain::Local, SocketType::Stream));
 
-    TRY(connect_local(fd, path));
+    TRY(connect_local(handle, path));
 
+    socket->m_helper.set_handle(handle.release());
     socket->setup_notifier();
     return socket;
 }
 
-ErrorOr<int> Socket::create_fd(SocketDomain domain, SocketType type)
+ErrorOr<OwningPlatformHandle> Socket::create_fd(SocketDomain domain, SocketType type)
 {
     int socket_domain;
     switch (domain) {
@@ -266,18 +267,18 @@ ErrorOr<Vector<Variant<IPv4Address, IPv6Address>>> Socket::resolve_host(ByteStri
     return addresses;
 }
 
-ErrorOr<void> Socket::connect_inet(int fd, SocketAddress const& address)
+ErrorOr<void> Socket::connect_inet(PlatformHandle const& socket, SocketAddress const& address)
 {
     if (address.type() == SocketAddress::Type::IPv6) {
         auto addr = address.to_sockaddr_in6();
-        return System::connect(fd, bit_cast<struct sockaddr*>(&addr), sizeof(addr));
+        return System::connect(socket, bit_cast<struct sockaddr*>(&addr), sizeof(addr));
     } else {
         auto addr = address.to_sockaddr_in();
-        return System::connect(fd, bit_cast<struct sockaddr*>(&addr), sizeof(addr));
+        return System::connect(socket, bit_cast<struct sockaddr*>(&addr), sizeof(addr));
     }
 }
 
-ErrorOr<void> Socket::connect_local(int fd, ByteString const& path)
+ErrorOr<void> Socket::connect_local(PlatformHandle const& socket, ByteString const& path)
 {
     auto address = SocketAddress::local(path);
     auto maybe_sockaddr = address.to_sockaddr_un();
@@ -287,7 +288,7 @@ ErrorOr<void> Socket::connect_local(int fd, ByteString const& path)
     }
 
     auto addr = maybe_sockaddr.release_value();
-    return System::connect(fd, bit_cast<struct sockaddr*>(&addr), sizeof(addr));
+    return System::connect(socket, bit_cast<struct sockaddr*>(&addr), sizeof(addr));
 }
 
 ErrorOr<NonnullOwnPtr<UDPSocket>> UDPSocket::connect(SocketAddress const& address, Optional<AK::Duration> timeout)
@@ -299,12 +300,13 @@ ErrorOr<NonnullOwnPtr<UDPSocket>> UDPSocket::connect(SocketAddress const& addres
         socket_domain = SocketDomain::Inet;
 
     auto fd = TRY(create_fd(socket_domain, SocketType::Datagram));
-    socket->m_helper.set_fd(fd);
+
+    TRY(connect_inet(fd, address));
+
+    socket->m_helper.set_handle(fd.release());
     if (timeout.has_value()) {
         TRY(socket->m_helper.set_receive_timeout(timeout.value()));
     }
-
-    TRY(connect_inet(fd, address));
 
     socket->setup_notifier();
     return socket;
@@ -345,21 +347,21 @@ ErrorOr<NonnullOwnPtr<TCPSocket>> TCPSocket::connect(SocketAddress const& addres
         socket_domain = SocketDomain::Inet;
 
     auto fd = TRY(create_fd(socket_domain, SocketType::Stream));
-    socket->m_helper.set_fd(fd);
 
     TRY(connect_inet(fd, address));
 
+    socket->m_helper.set_handle(fd.release());
     socket->setup_notifier();
     return socket;
 }
 
-ErrorOr<NonnullOwnPtr<TCPSocket>> TCPSocket::adopt_fd(int fd)
+ErrorOr<NonnullOwnPtr<TCPSocket>> TCPSocket::adopt_handle(PlatformHandle handle)
 {
-    if (static_cast<SOCKET>(fd) == INVALID_SOCKET)
+    if (!handle.is_valid())
         return Error::from_windows_error();
 
     auto socket = TRY(adopt_nonnull_own_or_enomem(new (nothrow) TCPSocket()));
-    socket->m_helper.set_fd(fd);
+    socket->m_helper.set_handle(handle);
     socket->setup_notifier();
     return socket;
 }

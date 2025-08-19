@@ -5,28 +5,29 @@
  */
 
 #include <LibCore/Directory.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/System.h>
 
 namespace Core {
 
 // We assume that the fd is a valid directory.
-Directory::Directory(int fd, LexicalPath path)
+Directory::Directory(PlatformHandle handle, LexicalPath path)
     : m_path(move(path))
-    , m_directory_fd(fd)
+    , m_directory_handle(handle)
 {
 }
 
 Directory::Directory(Directory&& other)
     : m_path(move(other.m_path))
-    , m_directory_fd(other.m_directory_fd)
+    , m_directory_handle(other.m_directory_handle)
 {
-    other.m_directory_fd = -1;
+    other.m_directory_handle.set_invalid();
 }
 
 Directory::~Directory()
 {
-    if (m_directory_fd != -1)
-        MUST(System::close(m_directory_fd));
+    if (m_directory_handle.is_valid())
+        MUST(System::close(move(m_directory_handle)));
 }
 
 #ifndef AK_OS_WINDOWS
@@ -39,18 +40,18 @@ ErrorOr<void> Directory::chown(uid_t uid, gid_t gid)
 }
 #endif
 
-ErrorOr<bool> Directory::is_valid_directory(int fd)
+ErrorOr<bool> Directory::is_valid_directory(PlatformHandle handle)
 {
-    auto stat = TRY(System::fstat(fd));
+    auto stat = TRY(System::fstat(handle));
     return stat.st_mode & S_IFDIR;
 }
 
-ErrorOr<Directory> Directory::adopt_fd(int fd, LexicalPath path)
+ErrorOr<Directory> Directory::adopt_handle(PlatformHandle handle, LexicalPath path)
 {
     // This will also fail if the fd is invalid in the first place.
-    if (!TRY(Directory::is_valid_directory(fd)))
+    if (!TRY(Directory::is_valid_directory(handle)))
         return Error::from_errno(ENOTDIR);
-    return Directory { fd, move(path) };
+    return Directory { handle, move(path) };
 }
 
 ErrorOr<Directory> Directory::create(ByteString path, CreateDirectories create_directories, mode_t creation_mode)
@@ -63,8 +64,8 @@ ErrorOr<Directory> Directory::create(LexicalPath path, CreateDirectories create_
     if (create_directories == CreateDirectories::Yes)
         TRY(ensure_directory(path, creation_mode));
     // FIXME: doesn't work on Linux probably
-    auto fd = TRY(System::open(path.string(), O_CLOEXEC));
-    return adopt_fd(fd, move(path));
+    auto handle = TRY(System::open(path.string(), O_CLOEXEC));
+    return adopt_handle(handle, move(path));
 }
 
 ErrorOr<void> Directory::ensure_directory(LexicalPath const& path, mode_t creation_mode)
@@ -84,18 +85,18 @@ ErrorOr<void> Directory::ensure_directory(LexicalPath const& path, mode_t creati
 
 ErrorOr<NonnullOwnPtr<File>> Directory::open(StringView filename, File::OpenMode mode) const
 {
-    auto fd = TRY(System::openat(m_directory_fd, filename, File::open_mode_to_options(mode)));
-    return File::adopt_fd(fd, mode);
+    auto handle = TRY(System::openat(m_directory_handle, filename, File::open_mode_to_options(mode)));
+    return File::adopt_handle(handle, mode);
 }
 
 ErrorOr<struct stat> Directory::stat(StringView filename, int flags) const
 {
-    return System::fstatat(m_directory_fd, filename, flags);
+    return System::fstatat(m_directory_handle, filename, flags);
 }
 
 ErrorOr<struct stat> Directory::stat() const
 {
-    return System::fstat(m_directory_fd);
+    return System::fstat(m_directory_handle);
 }
 
 ErrorOr<void> Directory::for_each_entry(DirIterator::Flags flags, Core::Directory::ForEachEntryCallback callback)

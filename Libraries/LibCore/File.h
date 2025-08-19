@@ -12,6 +12,7 @@
 #include <AK/NonnullOwnPtr.h>
 #include <AK/Stream.h>
 #include <LibCore/Forward.h>
+#include <LibCore/PlatformHandle.h>
 
 namespace Core {
 
@@ -32,13 +33,13 @@ public:
         DontCreate = 128,
     };
 
-    enum class ShouldCloseFileDescriptor {
+    enum class ShouldCloseFileDescriptor : u8 {
         Yes,
         No,
     };
 
     static ErrorOr<NonnullOwnPtr<File>> open(StringView filename, OpenMode, mode_t = 0644);
-    static ErrorOr<NonnullOwnPtr<File>> adopt_fd(int fd, OpenMode, ShouldCloseFileDescriptor = ShouldCloseFileDescriptor::Yes);
+    static ErrorOr<NonnullOwnPtr<File>> adopt_handle(PlatformHandle handle, OpenMode, ShouldCloseFileDescriptor = ShouldCloseFileDescriptor::Yes);
 
     static ErrorOr<NonnullOwnPtr<File>> standard_input();
     static ErrorOr<NonnullOwnPtr<File>> standard_output();
@@ -53,7 +54,7 @@ public:
             return *this;
 
         m_mode = exchange(other.m_mode, OpenMode::NotOpen);
-        m_fd = exchange(other.m_fd, -1);
+        m_handle = move(other.m_handle);
         m_last_read_was_eof = exchange(other.m_last_read_was_eof, false);
         return *this;
     }
@@ -75,15 +76,15 @@ public:
     // See also Socket::set_blocking.
     ErrorOr<void> set_blocking(bool enabled);
 
-    int leak_fd()
+    PlatformHandle leak_handle()
     {
         m_should_close_file_descriptor = ShouldCloseFileDescriptor::No;
-        return m_fd;
+        return move(m_handle);
     }
 
-    int fd() const
+    PlatformHandle const& handle() const
     {
-        return m_fd;
+        return m_handle;
     }
 
     virtual ~File() override
@@ -104,7 +105,7 @@ private:
     ErrorOr<void> open_path(StringView filename, mode_t);
 
     OpenMode m_mode { OpenMode::NotOpen };
-    int m_fd { -1 };
+    PlatformHandle m_handle;
     bool m_last_read_was_eof { false };
     ShouldCloseFileDescriptor m_should_close_file_descriptor { ShouldCloseFileDescriptor::Yes };
 

@@ -110,6 +110,7 @@ void OwningPlatformHandle::close()
     if (is_valid()) {
         MUST(System::close(move(m_handle)));
     }
+    m_handle = PlatformHandle {};
 }
 
 }

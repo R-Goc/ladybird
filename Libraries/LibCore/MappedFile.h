@@ -14,6 +14,7 @@
 #include <AK/NonnullOwnPtr.h>
 #include <AK/RefCounted.h>
 #include <LibCore/Forward.h>
+#include <LibCore/PlatformHandle.h>
 
 namespace Core {
 
@@ -24,7 +25,7 @@ class MappedFile : public FixedMemoryStream {
 public:
     static ErrorOr<NonnullOwnPtr<MappedFile>> map(StringView path, Mode mode = Mode::ReadOnly);
     static ErrorOr<NonnullOwnPtr<MappedFile>> map_from_file(NonnullOwnPtr<Core::File>, StringView path);
-    static ErrorOr<NonnullOwnPtr<MappedFile>> map_from_fd_and_close(int fd, StringView path, Mode mode = Mode::ReadOnly);
+    static ErrorOr<NonnullOwnPtr<MappedFile>> map_from_handle_and_close(PlatformHandle handle, StringView path, Mode mode = Mode::ReadOnly);
     virtual ~MappedFile();
 
     // Non-stream APIs for using MappedFile as a simple POSIX API wrapper.

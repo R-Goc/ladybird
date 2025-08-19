@@ -17,16 +17,15 @@ namespace Core {
 
 UDPServer::UDPServer()
 {
-    m_fd = MUST(Core::System::socket(AF_INET, SOCK_DGRAM, 0));
+    m_handle = MUST(Core::System::socket(AF_INET, SOCK_DGRAM, 0));
     int option = 1;
-    MUST(Core::System::ioctl(m_fd, FIONBIO, option));
-    auto const ret = SetHandleInformation(to_handle(m_fd), HANDLE_FLAG_INHERIT, 0);
+    MUST(Core::System::ioctl(m_handle, FIONBIO, &option));
+    auto const ret = SetHandleInformation(reinterpret_cast<HANDLE>(m_handle.socket()), HANDLE_FLAG_INHERIT, 0);
     VERIFY(ret != 0);
 }
 
 UDPServer::~UDPServer()
 {
-    MUST(Core::System::close(m_fd));
 }
 
 bool UDPServer::bind(IPv4Address const& address, u16 port)
@@ -36,7 +35,7 @@ bool UDPServer::bind(IPv4Address const& address, u16 port)
 
     auto socket_address = SocketAddress(address, port);
     auto in = socket_address.to_sockaddr_in();
-    auto bind_result = Core::System::bind(m_fd, (sockaddr const*)&in, sizeof(in));
+    auto bind_result = Core::System::bind(m_handle, (sockaddr const*)&in, sizeof(in));
     if (bind_result.is_error()) {
         perror("UDPServer::bind");
         return false;
@@ -44,7 +43,7 @@ bool UDPServer::bind(IPv4Address const& address, u16 port)
 
     m_bound = true;
 
-    m_notifier = Notifier::construct(m_fd, Notifier::Type::Read);
+    m_notifier = Notifier::construct(m_handle.socket(), Notifier::Type::Read);
     m_notifier->on_activation = [this] {
         if (on_ready_to_receive)
             on_ready_to_receive();
@@ -56,7 +55,7 @@ ErrorOr<ByteBuffer> UDPServer::receive(size_t size, sockaddr_in& in)
 {
     auto buf = TRY(ByteBuffer::create_uninitialized(size));
     socklen_t in_len = sizeof(in);
-    auto bytes_received = TRY(Core::System::recvfrom(m_fd, buf.data(), size, 0, (sockaddr*)&in, &in_len));
+    auto bytes_received = TRY(Core::System::recvfrom(m_handle.socket(), buf.data(), size, 0, (sockaddr*)&in, &in_len));
     buf.resize(bytes_received);
     return buf;
 }
@@ -64,17 +63,17 @@ ErrorOr<ByteBuffer> UDPServer::receive(size_t size, sockaddr_in& in)
 ErrorOr<size_t> UDPServer::send(ReadonlyBytes buffer, sockaddr_in const& to)
 {
     socklen_t to_len = sizeof(to);
-    return TRY(Core::System::sendto(m_fd, buffer.data(), buffer.size(), 0, (sockaddr const*)&to, to_len));
+    return TRY(Core::System::sendto(m_handle.socket(), buffer.data(), buffer.size(), 0, (sockaddr const*)&to, to_len));
 }
 
 Optional<IPv4Address> UDPServer::local_address() const
 {
-    if (m_fd == -1)
+    if (!m_handle.is_valid())
         return {};
 
     sockaddr_in address;
     socklen_t len = sizeof(address);
-    if (Core::System::getsockname(m_fd, (sockaddr*)&address, &len).is_error())
+    if (Core::System::getsockname(m_handle, (sockaddr*)&address, &len).is_error())
         return {};
 
     return IPv4Address(address.sin_addr.s_addr);
@@ -82,12 +81,12 @@ Optional<IPv4Address> UDPServer::local_address() const
 
 Optional<u16> UDPServer::local_port() const
 {
-    if (m_fd == -1)
+    if (!m_handle.is_valid())
         return {};
 
     sockaddr_in address;
     socklen_t len = sizeof(address);
-    if (Core::System::getsockname(m_fd, (sockaddr*)&address, &len).is_error())
+    if (Core::System::getsockname(m_handle, (sockaddr*)&address, &len).is_error())
         return {};
 
     return ntohs(address.sin_port);

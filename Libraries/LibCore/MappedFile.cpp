@@ -16,22 +16,22 @@ namespace Core {
 ErrorOr<NonnullOwnPtr<MappedFile>> MappedFile::map(StringView path, Mode mode)
 {
     auto const file_mode = mode == Mode::ReadOnly ? O_RDONLY : O_RDWR;
-    auto fd = TRY(Core::System::open(path, file_mode | O_CLOEXEC, 0));
-    return map_from_fd_and_close(fd, path, mode);
+    auto handle = TRY(Core::System::open(path, file_mode | O_CLOEXEC, 0));
+    return map_from_handle_and_close(handle.release(), path, mode);
 }
 
 ErrorOr<NonnullOwnPtr<MappedFile>> MappedFile::map_from_file(NonnullOwnPtr<Core::File> stream, StringView path)
 {
-    return map_from_fd_and_close(stream->leak_fd(), path);
+    return map_from_handle_and_close(stream->leak_handle(), path);
 }
 
-ErrorOr<NonnullOwnPtr<MappedFile>> MappedFile::map_from_fd_and_close(int fd, [[maybe_unused]] StringView path, Mode mode)
+ErrorOr<NonnullOwnPtr<MappedFile>> MappedFile::map_from_handle_and_close(PlatformHandle handle, [[maybe_unused]] StringView path, Mode mode)
 {
-    ScopeGuard fd_close_guard = [fd] {
-        (void)System::close(fd);
+    ScopeGuard handle_close_guard = [handle = move(handle)]() mutable {
+        (void)System::close(move(handle));
     };
 
-    auto stat = TRY(Core::System::fstat(fd));
+    auto stat = TRY(Core::System::fstat(handle));
     auto size = stat.st_size;
 
     int protection;
@@ -48,7 +48,7 @@ ErrorOr<NonnullOwnPtr<MappedFile>> MappedFile::map_from_fd_and_close(int fd, [[m
         break;
     }
 
-    auto* ptr = TRY(Core::System::mmap(nullptr, size, protection, flags, fd, 0, 0, path));
+    auto* ptr = TRY(Core::System::mmap(nullptr, size, protection, flags, handle, 0, 0, path));
 
     return adopt_own(*new MappedFile(ptr, size, mode));
 }

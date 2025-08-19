@@ -11,6 +11,7 @@
 #include <AK/Error.h>
 #include <AK/StringView.h>
 #include <LibCore/File.h>
+#include <LibCore/PlatformHandle.h>
 
 namespace FileSystem {
 
@@ -22,33 +23,33 @@ ErrorOr<ByteString> absolute_path(StringView path);
 ErrorOr<ByteString> real_path(StringView path);
 
 bool exists(StringView path);
-bool exists(int fd);
+bool exists(Core::PlatformHandle const& handle);
 
 bool is_regular_file(StringView path);
-bool is_regular_file(int fd);
+bool is_regular_file(Core::PlatformHandle const& handle);
 
 bool is_directory(StringView path);
-bool is_directory(int fd);
+bool is_directory(Core::PlatformHandle const& handle);
 
 bool is_link(StringView path);
-bool is_link(int fd);
+bool is_link(Core::PlatformHandle const& handle);
 
-enum class RecursionMode {
+enum class RecursionMode : u8 {
     Allowed,
     Disallowed
 };
 
-enum class LinkMode {
+enum class LinkMode : u8 {
     Allowed,
     Disallowed
 };
 
-enum class AddDuplicateFileMarker {
+enum class AddDuplicateFileMarker : u8 {
     Yes,
     No,
 };
 
-enum class PreserveMode {
+enum class PreserveMode : u8 {
     Nothing = 0,
     Permissions = (1 << 0),
     Ownership = (1 << 1),
@@ -62,7 +63,7 @@ ErrorOr<void> copy_file_or_directory(StringView destination_path, StringView sou
 ErrorOr<void> move_file(StringView destination_path, StringView source_path, PreserveMode = PreserveMode::Nothing);
 ErrorOr<void> remove(StringView path, RecursionMode);
 ErrorOr<off_t> size_from_stat(StringView path);
-ErrorOr<off_t> size_from_fstat(int fd);
+ErrorOr<off_t> size_from_fstat(Core::PlatformHandle const& handle);
 bool can_delete_or_move(StringView path);
 
 }

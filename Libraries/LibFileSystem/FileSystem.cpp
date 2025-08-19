@@ -8,6 +8,7 @@
 #include <AK/LexicalPath.h>
 #include <AK/ScopeGuard.h>
 #include <LibCore/DirIterator.h>
+#include <LibCore/PlatformHandle.h>
 #include <LibCore/System.h>
 #include <LibFileSystem/FileSystem.h>
 
@@ -73,9 +74,9 @@ bool exists(StringView path)
     return !Core::System::stat(path).is_error();
 }
 
-bool exists(int fd)
+bool exists(Core::PlatformHandle const& handle)
 {
-    return !Core::System::fstat(fd).is_error();
+    return !Core::System::fstat(handle).is_error();
 }
 
 bool is_regular_file(StringView path)
@@ -87,9 +88,9 @@ bool is_regular_file(StringView path)
     return S_ISREG(st.st_mode);
 }
 
-bool is_regular_file(int fd)
+bool is_regular_file(Core::PlatformHandle const& handle)
 {
-    auto st_or_error = Core::System::fstat(fd);
+    auto st_or_error = Core::System::fstat(handle);
     if (st_or_error.is_error())
         return false;
     auto st = st_or_error.release_value();
@@ -105,9 +106,9 @@ bool is_directory(StringView path)
     return S_ISDIR(st.st_mode);
 }
 
-bool is_directory(int fd)
+bool is_directory(Core::PlatformHandle const& handle)
 {
-    auto st_or_error = Core::System::fstat(fd);
+    auto st_or_error = Core::System::fstat(handle);
     if (st_or_error.is_error())
         return false;
     auto st = st_or_error.release_value();
@@ -357,9 +358,9 @@ ErrorOr<off_t> size_from_stat(StringView path)
     return st.st_size;
 }
 
-ErrorOr<off_t> size_from_fstat(int fd)
+ErrorOr<off_t> size_from_fstat(Core::PlatformHandle const& handle)
 {
-    auto st = TRY(Core::System::fstat(fd));
+    auto st = TRY(Core::System::fstat(handle));
     return st.st_size;
 }
 

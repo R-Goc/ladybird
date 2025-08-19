@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "LibCore/PlatformHandle.h"
 #include <LibCore/ElapsedTimer.h>
 #include <LibCore/Promise.h>
 #include <LibCrypto/OpenSSL.h>
@@ -35,11 +36,11 @@ ErrorOr<NonnullOwnPtr<TLSv12>> TLSv12::connect(Core::SocketAddress const& addres
     return connect_internal(move(tcp_socket), host, move(options));
 }
 
-static void wait_for_activity(int sock, bool read)
+static void wait_for_activity(Core::PlatformHandle const& sock, bool read)
 {
     fd_set fds;
     FD_ZERO(&fds);
-    FD_SET_(sock, &fds);
+    FD_SET_(sock.socket(), &fds);
 
     if (read)
         select(sock + 1, &fds, nullptr, nullptr, nullptr);
@@ -237,7 +238,7 @@ ErrorOr<NonnullOwnPtr<TLSv12>> TLSv12::connect_internal(NonnullOwnPtr<Core::TCPS
     // Ensure we check that the server has supplied a certificate for the hostname that we were expecting.
     OPENSSL_TRY(SSL_set1_host(ssl, host.characters()));
 
-    auto* bio = OPENSSL_TRY_PTR(BIO_new_socket(socket->fd(), 0));
+    auto* bio = OPENSSL_TRY_PTR(BIO_new_socket(socket->handle(), 0));
 
     // SSL takes ownership of the BIO and will handle freeing it
     SSL_set_bio(ssl, bio, bio);
@@ -251,10 +252,10 @@ ErrorOr<NonnullOwnPtr<TLSv12>> TLSv12::connect_internal(NonnullOwnPtr<Core::TCPS
 
         switch (SSL_get_error(ssl, ret)) {
         case SSL_ERROR_WANT_READ:
-            wait_for_activity(socket->fd(), true);
+            wait_for_activity(socket->handle(), true);
             break;
         case SSL_ERROR_WANT_WRITE:
-            wait_for_activity(socket->fd(), false);
+            wait_for_activity(socket->handle(), false);
             break;
         case SSL_ERROR_SSL:
             ERR_print_errors_cb(openssl_print_errors, nullptr);

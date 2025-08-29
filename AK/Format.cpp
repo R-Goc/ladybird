@@ -1158,14 +1158,15 @@ ErrorOr<void> Formatter<Error>::format_windows_error(FormatBuilder& builder, Err
         return Formatter<StringView>::format(builder, string->view());
     }
 
-    TCHAR* message = nullptr;
+    constexpr u32 nSize = 256;
+    TCHAR message[nSize] = {};
     u32 size = FormatMessage(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
         nullptr,
         static_cast<DWORD>(code),
         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
         message,
-        0,
+        nSize,
         nullptr);
     if (size == 0) {
         auto format_error = GetLastError();
@@ -1173,7 +1174,6 @@ ErrorOr<void> Formatter<Error>::format_windows_error(FormatBuilder& builder, Err
     }
 
     auto& string_in_map = windows_errors.ensure(code, [message, size] { return ByteString { message, size }; });
-    LocalFree(message);
     return Formatter<StringView>::format(builder, string_in_map.view());
 }
 #else

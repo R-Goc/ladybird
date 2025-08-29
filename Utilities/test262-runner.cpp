@@ -5,10 +5,13 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "AK/Assertions.h"
+#include "AK/StringBuilder.h"
 #include <AK/ByteString.h>
 #include <AK/Error.h>
 #include <AK/Format.h>
 #include <AK/JsonObject.h>
+#include <AK/Platform.h>
 #include <AK/ScopeGuard.h>
 #include <AK/Vector.h>
 #include <LibCore/ArgsParser.h>
@@ -20,13 +23,18 @@
 #include <LibJS/Runtime/ValueInlines.h>
 #include <LibJS/Script.h>
 #include <LibJS/SourceTextModule.h>
+#include <cstdio>
 #include <fcntl.h>
 #include <signal.h>
-#include <unistd.h>
 
-#if !defined(AK_OS_MACOS) && !defined(AK_OS_EMSCRIPTEN) && !defined(AK_OS_GNU_HURD)
+#if !defined(AK_OS_WINDOWS)
+#    include <unistd.h>
+#    if !defined(AK_OS_MACOS) && !defined(AK_OS_EMSCRIPTEN) && !defined(AK_OS_GNU_HURD)
 // Only used to disable core dumps
-#    include <sys/prctl.h>
+#        include <sys/prctl.h>
+#    endif
+#else
+#    include <AK/Windows.h>
 #endif
 
 static ByteString s_current_test = "";
@@ -249,7 +257,7 @@ static ErrorOr<void, TestError> run_test(StringView source, StringView filepath,
 
 static ErrorOr<TestMetadata, String> extract_metadata(StringView source)
 {
-    auto lines = source.lines();
+    auto lines = source.lines(StringView::ConsiderCarriageReturn::Yes);
 
     TestMetadata metadata;
 
@@ -517,6 +525,9 @@ static bool extract_harness_directory(ByteString const& test_file_path)
     return true;
 }
 
+// FIXME: None of this works on windows. _CrtSetReportHook can replace the assert handler, but I don't see the point.
+// Neither VERIFY nor ASSERT in ladybird call the CRT assert handler. Instead they directly trap. Should all this code be removed?
+#if !defined(AK_OS_WINDOWS)
 static FILE* saved_stdout_fd;
 static bool g_in_assert = false;
 
@@ -543,28 +554,48 @@ static bool g_in_assert = false;
 //        Fixing this will likely require updating the test driver as well to pull the assertion failure
 //        message out of stderr rather than from the json object printed to stdout.
 // FIXME: This likely doesn't even work with our custom ak_verification_failed handler
-#pragma push_macro("NDEBUG")
+#    pragma push_macro("NDEBUG")
 // Apple headers do not expose the declaration of __assert_rtn when NDEBUG is set.
-#undef NDEBUG
-#include <assert.h>
+#    undef NDEBUG
+#    include <assert.h>
 
-#ifdef AK_OS_MACOS
+#    ifdef AK_OS_MACOS
 extern "C" __attribute__((__noreturn__)) void __assert_rtn(char const* function, char const* file, int line, char const* assertion)
-#elifdef ASSERT_FAIL_HAS_INT /* Set by CMake */
+#    elifdef ASSERT_FAIL_HAS_INT /* Set by CMake */
 extern "C" __attribute__((__noreturn__)) void __assert_fail(char const* assertion, char const* file, int line, char const* function)
-#else
+#    else
 extern "C" __attribute__((__noreturn__)) void __assert_fail(char const* assertion, char const* file, unsigned int line, char const* function)
-#endif
+#    endif
 {
     auto full_message = ByteString::formatted("{}:{}: {}: Assertion `{}' failed.", file, line, function, assertion);
     handle_failed_assert(full_message.characters());
 }
-#pragma pop_macro("NDEBUG")
+#    pragma pop_macro("NDEBUG")
+#endif
 
 constexpr int exit_wrong_arguments = 2;
 constexpr int exit_stdout_setup_failed = 1;
 constexpr int exit_setup_input_failure = 7;
 constexpr int exit_read_file_failure = 3;
+
+static DWORD WINAPI watchdog_thread_proc(LPVOID lpParameter)
+{
+    // NOTE: Handle 1 is the timer, handle 2 is the shutdown event
+    // We sit waiting. If the test times out we exit, otherwise we should stay waiting until shutdown.
+    PHANDLE handles = static_cast<PHANDLE>(lpParameter);
+    while (true) {
+        DWORD wait_result = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+        switch (wait_result) {
+        case WAIT_OBJECT_0:
+            TerminateProcess(GetCurrentProcess(), 124);
+            return 1;
+        case WAIT_OBJECT_0 + 1:
+            return 0;
+        default:
+            return 1;
+        }
+    }
+}
 
 int main(int argc, char** argv)
 {
@@ -589,7 +620,7 @@ int main(int argc, char** argv)
 #ifdef AK_OS_GNU_HURD
     if (disable_core_dumping)
         setenv("CRASHSERVER", "/servers/crash-kill", true);
-#elif !defined(AK_OS_MACOS) && !defined(AK_OS_EMSCRIPTEN)
+#elif !defined(AK_OS_MACOS) && !defined(AK_OS_EMSCRIPTEN) && !defined(AK_OS_WINDOWS)
     if (disable_core_dumping && prctl(PR_SET_DUMPABLE, 0, 0, 0) < 0) {
         perror("prctl(PR_SET_DUMPABLE)");
         return exit_wrong_arguments;
@@ -613,7 +644,8 @@ int main(int argc, char** argv)
     constexpr auto BUFFER_SIZE = 1 * KiB;
     char buffer[BUFFER_SIZE] = {};
 
-    auto saved_stdout = dup(STDOUT_FILENO);
+#if !defined AK_OS_WINDOWS
+    auto saved_stdout = dup(fileno(stdout));
     if (saved_stdout < 0) {
         perror("dup");
         return exit_stdout_setup_failed;
@@ -664,13 +696,101 @@ int main(int argc, char** argv)
         return value;
     };
 
-#define ARM_TIMER() \
-    alarm(timeout)
+    auto arm_timer = [&timeout]() {
+        alarm(timeout);
+    };
 
-#define DISARM_TIMER() \
-    alarm(0)
+    auto disarm_timer = []() {
+        alarm(0);
+    };
+#else
+    HANDLE hSavedStdout = GetStdHandle(STD_OUTPUT_HANDLE);
 
-    auto standard_input_or_error = Core::File::standard_input();
+    if (hSavedStdout == INVALID_HANDLE_VALUE) {
+        outln("Failed to save stdout handle: {}", Error::from_windows_error());
+        return exit_stdout_setup_failed;
+    }
+
+    SECURITY_ATTRIBUTES sa { .nLength = sizeof(SECURITY_ATTRIBUTES), .lpSecurityDescriptor = NULL, .bInheritHandle = FALSE };
+    HANDLE hReadPipe;
+    HANDLE hWritePipe;
+
+    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+        warnln("Failed to create pipe: {}", Error::from_windows_error());
+        return exit_stdout_setup_failed;
+    }
+
+    if (!SetStdHandle(STD_OUTPUT_HANDLE, hWritePipe)) {
+        warnln("Failed to redirect stdout: {}", Error::from_windows_error());
+        return exit_stdout_setup_failed;
+    }
+
+    auto collect_output = [&] {
+        fflush(stdout);
+
+        DWORD dwBytesAvailable = 0;
+        DWORD dwBytesRead = 0;
+        Optional<ByteString> value {};
+
+        if (!PeekNamedPipe(hReadPipe, NULL, 0, NULL, &dwBytesAvailable, NULL)) {
+            warnln("PeekNamedPipe failed: {}", Error::from_windows_error());
+            return value;
+        }
+
+        // We need this check so that we don't block on ReadFile
+        if (dwBytesAvailable == 0) {
+            return value;
+        }
+
+        // NOTE: Feature/bug matching the posix impl here. Should we only be reading the single buffer?
+        if (!ReadFile(hReadPipe, &buffer, min(dwBytesAvailable, BUFFER_SIZE), &dwBytesRead, NULL)) {
+            warnln("ReadFile failed: {}", Error::from_windows_error());
+            return value;
+        }
+
+        value = ByteString { buffer, dwBytesRead };
+        return value;
+    };
+
+    HANDLE hTimer = CreateWaitableTimer(&sa, TRUE, NULL);
+    if (!hTimer) {
+        warnln("Failed to create timer: {}", Error::from_windows_error());
+        VERIFY_NOT_REACHED();
+    }
+
+    HANDLE hShutdownEvent = CreateEvent(&sa, TRUE, FALSE, NULL);
+    if (!hShutdownEvent) {
+        warnln("Failed to create timer disarm event: {}", Error::from_windows_error());
+        VERIFY_NOT_REACHED();
+    }
+
+    PHANDLE wait_events = new HANDLE[2] { hTimer, hShutdownEvent };
+    HANDLE hThread = CreateThread(&sa, 0, watchdog_thread_proc, static_cast<LPVOID>(wait_events), 0, NULL);
+    if (!hThread) {
+        warnln("Failed to create watchdog thread: {}", Error::from_windows_error());
+        VERIFY_NOT_REACHED();
+    }
+
+    LONGLONG llTimeout = 10LL;
+    LARGE_INTEGER liDueTime { .QuadPart = -(llTimeout * 100000000LL) }; // The unit here is 100ns, negative means relative
+
+    auto arm_timer = [&hTimer, &liDueTime]() {
+        if (!SetWaitableTimer(hTimer, &liDueTime, 0, NULL, NULL, FALSE)) {
+            warnln("Failed to set timer: {}", Error::from_windows_error());
+            VERIFY_NOT_REACHED();
+        }
+    };
+
+    auto disarm_timer = [&hTimer]() {
+        if (!CancelWaitableTimer(hTimer)) {
+            warnln("Failed to cancel timer: {}", Error::from_windows_error());
+            VERIFY_NOT_REACHED();
+        }
+    };
+#endif
+
+    auto standard_input_or_error
+        = Core::File::standard_input();
     if (standard_input_or_error.is_error())
         return exit_setup_input_failure;
 
@@ -701,7 +821,7 @@ int main(int argc, char** argv)
 
         auto file_or_error = Core::File::open(path, Core::File::OpenMode::Read);
         if (file_or_error.is_error()) {
-            warnln("Could not open file: {}", path);
+            warnln("Could not open file: {},\n with error: {}", path, file_or_error.error());
             return exit_read_file_failure;
         }
         auto& file = file_or_error.value();
@@ -732,8 +852,17 @@ int main(int argc, char** argv)
         result_object.set("test"sv, path);
 
         ScopeGuard output_guard = [&] {
+#if !defined(AK_OS_WINDOWS)
             outln(saved_stdout_fd, "RESULT {}{}", result_object.serialized(), '\0');
             fflush(saved_stdout_fd);
+#else
+            auto buf = ByteString::formatted("RESULT {}{}", result_object.serialized(), '\0');
+            DWORD dwBytesWritten = 0;
+            if (!WriteFile(hSavedStdout, buf.characters(), buf.length(), &dwBytesWritten, NULL)) {
+                warnln("Writing output failed: {}", Error::from_windows_error());
+                VERIFY_NOT_REACHED();
+            }
+#endif
         };
 
         auto metadata_or_error = extract_metadata(original_contents);
@@ -755,9 +884,9 @@ int main(int argc, char** argv)
         if (metadata.strict_mode != StrictMode::OnlyStrict) {
             result_object.set("strict_mode"sv, false);
 
-            ARM_TIMER();
+            arm_timer();
             auto result = run_test(original_contents, path, metadata);
-            DISARM_TIMER();
+            disarm_timer();
 
             auto first_output = collect_output();
             if (first_output.has_value())
@@ -779,9 +908,9 @@ int main(int argc, char** argv)
         if (passed && metadata.strict_mode != StrictMode::NoStrict) {
             result_object.set("strict_mode"sv, true);
 
-            ARM_TIMER();
+            arm_timer();
             auto result = run_test(with_strict, path, metadata);
-            DISARM_TIMER();
+            disarm_timer();
 
             auto first_output = collect_output();
             if (first_output.has_value())
@@ -809,10 +938,19 @@ int main(int argc, char** argv)
     }
 
     s_current_test = "";
+#if !defined(AK_OS_WINDOWS)
     outln(saved_stdout_fd, "DONE {}", count);
+#else
+    auto buf = ByteString::formatted("DONE {}", count);
+    if (!WriteFile(hSavedStdout, buf.characters(), buf.length(), NULL, NULL)) {
+        warnln("Writing output failed: {}", Error::from_windows_error());
+        VERIFY_NOT_REACHED();
+    }
+#endif
 
-    // After this point we have already written our output so pretend everything is fine if we get an error.
-    if (dup2(saved_stdout, STDOUT_FILENO) < 0) {
+// After this point we have already written our output so pretend everything is fine if we get an error.
+#if !defined(AK_OS_WINDOWS)
+    if (dup2(saved_stdout, fileno(stdout)) < 0) {
         perror("dup2");
         return 0;
     }
@@ -826,6 +964,24 @@ int main(int argc, char** argv)
         perror("close");
         return 0;
     }
+#else
+    if (!SetEvent(hShutdownEvent)) {
+        // we are unable to set the event so the tread will be stuck on a wait. Let the OS deal with it.
+        warnln("Failed set shutdown event: {}", Error::from_windows_error());
+        return 0;
+    }
+
+    if (!SetStdHandle(STD_OUTPUT_HANDLE, hSavedStdout)) {
+        warnln("Failed to restore stdout: {}", Error::from_windows_error());
+        return 0;
+    }
+
+    if (!CloseHandle(hReadPipe)) {
+        warnln("Failed to close read pipe: {}", Error::from_windows_error());
+        return 0;
+    }
+
+#endif
 
     return 0;
 }

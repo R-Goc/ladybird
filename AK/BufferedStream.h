@@ -67,7 +67,7 @@ public:
     // read. Returns the bytes read as a StringView.
     ErrorOr<StringView> read_line(Bytes buffer)
     {
-        return StringView { TRY(read_until(buffer, "\n"sv)) };
+        return StringView { TRY(read_until(buffer, "\r\n"sv)) };
     }
 
     ErrorOr<Bytes> read_until(Bytes buffer, StringView candidate)

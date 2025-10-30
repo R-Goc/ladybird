@@ -22,7 +22,7 @@
 #include <LibMedia/Providers/MediaTimeProvider.h>
 #include <LibMedia/TimeRanges.h>
 #include <LibMedia/Track.h>
-#include <LibThreading/Mutex.h>
+#include <LibSync/Mutex.h>
 
 namespace Media {
 
@@ -220,7 +220,7 @@ public:
 
     void revoke(Badge<PlaybackManager>)
     {
-        Threading::MutexLocker locker { m_mutex };
+        Sync::MutexLocker locker { m_mutex };
         m_manager = nullptr;
     }
 
@@ -231,7 +231,7 @@ private:
         VERIFY(&Core::EventLoop::current() == &m_originating_event_loop);
     }
 
-    mutable Threading::Mutex m_mutex;
+    mutable Sync::Mutex m_mutex;
     PlaybackManager* m_manager { nullptr };
     Core::EventLoop& m_originating_event_loop;
 };

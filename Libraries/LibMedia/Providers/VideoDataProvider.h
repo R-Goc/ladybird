@@ -21,8 +21,8 @@
 #include <LibMedia/TimeRanges.h>
 #include <LibMedia/TimedImage.h>
 #include <LibMedia/Track.h>
-#include <LibThreading/ConditionVariable.h>
-#include <LibThreading/Mutex.h>
+#include <LibSync/ConditionVariable.h>
+#include <LibSync/Mutex.h>
 
 namespace Media {
 
@@ -101,7 +101,7 @@ private:
 
         TimeRanges buffered_time_ranges() const;
 
-        [[nodiscard]] Threading::MutexLocker take_lock() const { return Threading::MutexLocker(m_mutex); }
+        [[nodiscard]] Sync::MutexLocker take_lock() const { return Sync::MutexLocker(m_mutex); }
         void wake() const { m_wait_condition.broadcast(); }
 
     private:
@@ -114,8 +114,8 @@ private:
 
         NonnullRefPtr<Core::WeakEventLoopReference> m_main_thread_event_loop;
 
-        mutable Threading::Mutex m_mutex;
-        mutable Threading::ConditionVariable m_wait_condition { m_mutex };
+        mutable Sync::Mutex m_mutex;
+        mutable Sync::ConditionVariable m_wait_condition { m_mutex };
         RequestedState m_requested_state { RequestedState::None };
 
         NonnullRefPtr<Demuxer> m_demuxer;

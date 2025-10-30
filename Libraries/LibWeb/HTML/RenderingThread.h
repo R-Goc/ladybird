@@ -10,9 +10,8 @@
 #include <AK/NonnullRefPtr.h>
 #include <AK/Queue.h>
 #include <AK/Variant.h>
-#include <LibThreading/ConditionVariable.h>
+#include <LibSync/ConditionVariable.h>
 #include <LibThreading/Forward.h>
-#include <LibThreading/Mutex.h>
 #include <LibWeb/Forward.h>
 #include <LibWeb/Page/Page.h>
 

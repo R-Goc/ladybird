@@ -8,7 +8,7 @@
 
 #include <AK/AtomicRefCounted.h>
 #include <AK/Noncopyable.h>
-#include <LibThreading/Mutex.h>
+#include <LibSync/Mutex.h>
 
 #ifdef USE_VULKAN
 #    include <LibGfx/VulkanContext.h>
@@ -55,7 +55,7 @@ public:
     void unlock() { m_mutex.unlock(); }
 
 private:
-    Threading::Mutex m_mutex;
+    Sync::Mutex m_mutex;
 };
 
 }

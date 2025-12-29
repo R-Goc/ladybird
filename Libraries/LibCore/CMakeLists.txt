@@ -11,6 +11,7 @@ set(SOURCES
     SocketAddress.cpp
     StandardPaths.cpp
     Version.cpp
+    Tracing.cpp
 )
 
 if (WIN32)

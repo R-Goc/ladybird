@@ -19,6 +19,7 @@
 #include <sys/mman.h>
 
 #include <AK/Windows.h>
+#include <LibCore/Tracing.h>
 #include <ws2tcpip.h>
 
 namespace Core::System {
@@ -49,17 +50,27 @@ ErrorOr<void> close(int handle)
 
 ErrorOr<size_t> read(int handle, Bytes buffer)
 {
+    CORE_IO_TRACE_START("read");
     DWORD n_read = 0;
-    if (!ReadFile(to_handle(handle), buffer.data(), buffer.size(), &n_read, NULL))
-        return Error::from_windows_error();
+    if (!ReadFile(to_handle(handle), buffer.data(), buffer.size(), &n_read, NULL)) {
+        DWORD error = GetLastError();
+        CORE_IO_TRACE_END("read", error)
+        return Error::from_windows_error(error);
+    }
+    CORE_IO_TRACE_END("read", 0);
     return n_read;
 }
 
 ErrorOr<size_t> write(int handle, ReadonlyBytes buffer)
 {
+    CORE_IO_TRACE_START("write");
     DWORD n_written = 0;
-    if (!WriteFile(to_handle(handle), buffer.data(), buffer.size(), &n_written, NULL))
-        return Error::from_windows_error();
+    if (!WriteFile(to_handle(handle), buffer.data(), buffer.size(), &n_written, NULL)) {
+        DWORD error = GetLastError();
+        CORE_IO_TRACE_END("write", error)
+        return Error::from_windows_error(error);
+    }
+    CORE_IO_TRACE_END("write", 0);
     return n_written;
 }
 

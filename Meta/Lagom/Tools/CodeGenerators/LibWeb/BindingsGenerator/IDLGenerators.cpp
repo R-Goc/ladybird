@@ -65,6 +65,16 @@ static bool is_platform_object(Context const& context, Type const& type)
     return context.interfaces.contains(type.name()) || type.name() == "WindowProxy"sv;
 }
 
+static void set_maybe_using_web_crypto(SourceGenerator& generator, IDL::Interface const& interface)
+{
+    if (interface.fully_qualified_name.starts_with("Crypto::"sv) || interface.name.is_one_of("Crypto"sv, "SubtleCrypto"sv)) {
+        generator.set("maybe_using_web_crypto", ""sv);
+        // generator.set("maybe_using_web_crypto", "    using namespace Web::Crypto;"sv);
+    } else {
+        generator.set("maybe_using_web_crypto", ""sv);
+    }
+}
+
 static ByteString interface_cpp_type_name(Interface const& interface)
 {
     if (!interface.fully_qualified_name.is_empty())
@@ -2673,9 +2683,12 @@ static void generate_function(SourceGenerator& generator, IDL::Function const& f
         function_generator.set("function.cpp_name", make_input_acceptable_cpp(function.name.to_snakecase()));
     }
 
+    set_maybe_using_web_crypto(function_generator, interface);
+
     function_generator.append(R"~~~(
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::@function.name:snakecase@@overload_suffix@)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::@function.name:snakecase@@overload_suffix@");
     [[maybe_unused]] auto& realm = *vm.current_realm();
 )~~~");
@@ -2691,7 +2704,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::@function.name:snakecase@@overload_suffi
 
     if (is_static_function == StaticFunction::No) {
         function_generator.append(R"~~~(
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 )~~~");
     }
 
@@ -3002,6 +3015,8 @@ static void generate_overload_arbiter(SourceGenerator& generator, auto const& ov
 
     function_generator.set("function.name:snakecase", make_input_acceptable_cpp(overload_set.key.to_snakecase()));
 
+    set_maybe_using_web_crypto(function_generator, interface);
+
     HashTable<ByteString> dictionary_types;
 
     if (is_constructor == IsConstructor::Yes && shared_constructor == SharedConstructor::Yes) {
@@ -3015,6 +3030,7 @@ JS::ThrowCompletionOr<GC::Ref<JS::Object>> @constructor_class@::construct(Interf
         function_generator.append(R"~~~(
 JS::ThrowCompletionOr<GC::Ref<JS::Object>> @constructor_class@::construct(JS::FunctionObject& new_target)
 {
+    @maybe_using_web_crypto@
     auto& vm = this->vm();
     WebIDL::log_trace(vm, "@constructor_class@::construct");
 )~~~");
@@ -3022,6 +3038,7 @@ JS::ThrowCompletionOr<GC::Ref<JS::Object>> @constructor_class@::construct(JS::Fu
         function_generator.append(R"~~~(
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::@function.name:snakecase@)
 {
+    @maybe_using_web_crypto@    
     WebIDL::log_trace(vm, "@class_name@::@function.name:snakecase@");
 )~~~");
     }
@@ -4237,7 +4254,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::to_json)
 {
     WebIDL::log_trace(vm, "@class_name@::to_json");
     auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     auto result = JS::Object::create(realm, realm.intrinsics().object_prototype());
 )~~~");
@@ -4930,7 +4947,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::@attribute.setter_callback@)
     //   (This will subsequently cause a TypeError in a few steps, if the global object does not implement target and [LegacyLenientThis] is not specified.)
     // FIXME: 2. If jsValue is a platform object, then perform a security check, passing jsValue, id, and "setter".
     // 3. Let validThis be true if jsValue implements target, or false otherwise.
-    auto maybe_impl = impl_from(vm);
+    auto maybe_impl = LIBWEB_UNITY_ID::impl_from(vm);
 
     // 4. If validThis is false and attribute was not specified with the [LegacyLenientThis] extended attribute, then throw a TypeError.
 )~~~");
@@ -5185,6 +5202,9 @@ static void generate_prototype_or_global_mixin_definitions(IDL::Interface const&
 
     if (!interface.attributes.is_empty() || !interface.functions.is_empty() || interface.has_stringifier || interface.set_entry_type.has_value() || interface.map_key_type.has_value()) {
         generator.append(R"~~~(
+namespace { 
+namespace LIBWEB_UNITY_ID {
+
 [[maybe_unused]] static JS::ThrowCompletionOr<@fully_qualified_name@*> impl_from(JS::VM& vm, JS::Value js_value)
 {
 )~~~");
@@ -5212,6 +5232,8 @@ static void generate_prototype_or_global_mixin_definitions(IDL::Interface const&
     return impl_from(vm, this_value);
 }
 
+}
+}
 )~~~");
     }
 
@@ -5248,12 +5270,15 @@ static void generate_prototype_or_global_mixin_definitions(IDL::Interface const&
             attribute_generator.set("attribute.reflect_name", attribute.name.to_snakecase());
         }
 
+        set_maybe_using_web_crypto(attribute_generator, interface);
+
         // For [CEReactions]: https://html.spec.whatwg.org/multipage/custom-elements.html#cereactions
         includes.add_header("LibWeb/WebIDL/Tracing.h"sv);
 
         attribute_generator.append(R"~~~(
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::@attribute.getter_callback@)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::@attribute.getter_callback@");
     [[maybe_unused]] auto& realm = *vm.current_realm();
 )~~~");
@@ -5267,7 +5292,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::@attribute.getter_callback@)
         }
 
         attribute_generator.append(R"~~~(
-    [[maybe_unused]] auto* impl = TRY(impl_from(vm));
+    [[maybe_unused]] auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 )~~~");
 
         auto cache_result = false;
@@ -5657,15 +5682,17 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::@attribute.getter_callback@)
 
         auto stringifier_generator = generator.fork();
         stringifier_generator.set("class_name", class_name);
+        set_maybe_using_web_crypto(stringifier_generator, interface);
         if (interface.stringifier_attribute.has_value())
             stringifier_generator.set("attribute.cpp_getter_name", interface.stringifier_attribute.value().name.to_snakecase());
 
         stringifier_generator.append(R"~~~(
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::to_string)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::to_string");
     [[maybe_unused]] auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
 )~~~");
         if (interface.stringifier_attribute.has_value()) {
@@ -5691,20 +5718,23 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::to_string)
         includes.add_header("LibJS/Runtime/AbstractOperations.h"sv);
 
         auto iterator_generator = generator.fork();
+        set_maybe_using_web_crypto(iterator_generator, interface);
         iterator_generator.append(R"~~~(
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::entries)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::entries");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     return TRY(throw_dom_exception_if_needed(vm, [&] { return @iterator_name@::create(*impl, Object::PropertyKind::KeyAndValue); }));
 }
 
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::for_each)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::for_each");
     [[maybe_unused]] auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     auto callback = vm.argument(0);
     if (!callback.is_function())
@@ -5725,16 +5755,18 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::for_each)
 
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::keys)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::keys");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     return TRY(throw_dom_exception_if_needed(vm, [&] { return @iterator_name@::create(*impl, Object::PropertyKind::Key);  }));
 }
 
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
 {
+    @maybe_using_web_crypto@ 
     WebIDL::log_trace(vm, "@class_name@::values");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     return TRY(throw_dom_exception_if_needed(vm, [&] { return @iterator_name@::create(*impl, Object::PropertyKind::Value); }));
 }
@@ -5748,13 +5780,15 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
         includes.add_header("LibWeb/WebIDL/Tracing.h"sv);
 
         auto iterator_generator = generator.fork();
+        set_maybe_using_web_crypto(iterator_generator, interface);
         iterator_generator.set("iterator_name"sv, ByteString::formatted("{}AsyncIterator", interface.fully_qualified_name));
         iterator_generator.append(R"~~~(
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::values");
     auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 )~~~");
 
         StringBuilder arguments_builder;
@@ -5779,6 +5813,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
         collect_include_dependencies(interface.context, set_entry_type, includes);
         auto value_type = cpp_type_name(set_entry_type, interface.context);
         setlike_generator.set("value_type", value_type);
+        set_maybe_using_web_crypto(setlike_generator, interface);
 
         if (set_entry_type.is_string()) {
             setlike_generator.set("value_type_check", R"~~~(
@@ -5801,8 +5836,9 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
 // https://webidl.spec.whatwg.org/#js-set-size
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::get_size)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::size");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Set> set = impl->set_entries();
 
@@ -5812,9 +5848,10 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::get_size)
 // https://webidl.spec.whatwg.org/#js-set-entries
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::entries)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::entries");
     auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Set> set = impl->set_entries();
 
@@ -5824,9 +5861,10 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::entries)
 // https://webidl.spec.whatwg.org/#js-set-values
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::values");
     auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Set> set = impl->set_entries();
 
@@ -5836,8 +5874,9 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
 // https://webidl.spec.whatwg.org/#js-set-forEach
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::for_each)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::for_each");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Set> set = impl->set_entries();
 
@@ -5856,8 +5895,9 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::for_each)
 // https://webidl.spec.whatwg.org/#js-set-has
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::has)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::has");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Set> set = impl->set_entries();
 
@@ -5876,8 +5916,9 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::has)
 // https://webidl.spec.whatwg.org/#js-set-add
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::add)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::add");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Set> set = impl->set_entries();
 
@@ -5899,8 +5940,9 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::add)
 // https://webidl.spec.whatwg.org/#js-set-delete
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::delete_)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::delete_");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Set> set = impl->set_entries();
 
@@ -5921,8 +5963,9 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::delete_)
 // https://webidl.spec.whatwg.org/#js-set-clear
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::clear)
 {
+    @maybe_using_web_crypto@
     WebIDL::log_trace(vm, "@class_name@::clear");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Set> set = impl->set_entries();
 
@@ -5971,7 +6014,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::clear)
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::get_size)
 {
     WebIDL::log_trace(vm, "@class_name@::size");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -5983,7 +6026,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::entries)
 {
     WebIDL::log_trace(vm, "@class_name@::entries");
     auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -5995,7 +6038,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::keys)
 {
     WebIDL::log_trace(vm, "@class_name@::keys");
     auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -6007,7 +6050,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
 {
     WebIDL::log_trace(vm, "@class_name@::values");
     auto& realm = *vm.current_realm();
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -6018,7 +6061,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::values)
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::for_each)
 {
     WebIDL::log_trace(vm, "@class_name@::for_each");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -6036,7 +6079,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::for_each)
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::get)
 {
     WebIDL::log_trace(vm, "@class_name@::get");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -6058,7 +6101,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::get)
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::has)
 {
     WebIDL::log_trace(vm, "@class_name@::has");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -6078,7 +6121,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::has)
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::set)
 {
     WebIDL::log_trace(vm, "@class_name@::set");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -6104,7 +6147,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::set)
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::delete_)
 {
     WebIDL::log_trace(vm, "@class_name@::delete_");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -6127,7 +6170,7 @@ JS_DEFINE_NATIVE_FUNCTION(@class_name@::delete_)
 JS_DEFINE_NATIVE_FUNCTION(@class_name@::clear)
 {
     WebIDL::log_trace(vm, "@class_name@::clear");
-    auto* impl = TRY(impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::impl_from(vm));
 
     GC::Ref<JS::Map> map = impl->map_entries();
 
@@ -6873,7 +6916,10 @@ void @prototype_class@::initialize(JS::Realm& realm)
     define_direct_property(vm.well_known_symbol_to_string_tag(), JS::PrimitiveString::create(vm, "@to_string_tag@"_string), JS::Attribute::Configurable);
 }
 
-static JS::ThrowCompletionOr<@fully_qualified_name@*> iterator_impl_from(JS::VM& vm)
+namespace { 
+namespace LIBWEB_UNITY_ID {
+
+JS::ThrowCompletionOr<@fully_qualified_name@*> iterator_impl_from(JS::VM& vm)
 {
     auto this_object = TRY(vm.this_value().to_object(vm));
     if (!is<@fully_qualified_name@>(*this_object))
@@ -6881,10 +6927,13 @@ static JS::ThrowCompletionOr<@fully_qualified_name@*> iterator_impl_from(JS::VM&
     return static_cast<@fully_qualified_name@*>(this_object.ptr());
 }
 
+} // namespace LIBWEB_UNITY_ID
+} // namespace
+
 JS_DEFINE_NATIVE_FUNCTION(@prototype_class@::next)
 {
     WebIDL::log_trace(vm, "@prototype_class@::next");
-    auto* impl = TRY(iterator_impl_from(vm));
+    auto* impl = TRY(LIBWEB_UNITY_ID::iterator_impl_from(vm));
     return TRY(throw_dom_exception_if_needed(vm, [&] { return impl->next(); }));
 }
 )~~~");
@@ -7161,6 +7210,12 @@ static void generate_implementation_body(IDL::Interface const& interface, String
 
     auto can_use_shared_constructor = can_use_shared_interface_constructor(interface);
     auto can_use_shared_prototype = can_use_shared_interface_prototype(interface);
+
+    builder.append(R"~~~(
+    #ifndef LIBWEB_UNITY_ID
+    #define LIBWEB_UNITY_ID LIBWEB_NON_UNITY_BUILD
+    #endif
+)~~~"sv);
 
     if (interface.is_namespace) {
         generate_namespace_implementation(interface, builder, includes);

@@ -18,20 +18,30 @@
 #include <LibGfx/Font/TypefaceSkia.h>
 #include <LibWeb/Platform/FontPlugin.h>
 
+#ifndef LIBWEB_UNITY_ID
+#    define LIBWEB_UNITY_ID LIBWEB_UNITY_ID_FALLBACK
+#endif
+
 namespace Web::Platform {
+
+namespace {
+namespace LIBWEB_UNITY_ID {
 
 static FontPlugin* s_the;
 
+}
+}
+
 FontPlugin& FontPlugin::the()
 {
-    VERIFY(s_the);
-    return *s_the;
+    VERIFY(LIBWEB_UNITY_ID::s_the);
+    return *LIBWEB_UNITY_ID::s_the;
 }
 
 void FontPlugin::install(FontPlugin& plugin)
 {
-    VERIFY(!s_the);
-    s_the = &plugin;
+    VERIFY(!LIBWEB_UNITY_ID::s_the);
+    LIBWEB_UNITY_ID::s_the = &plugin;
 }
 
 FontPlugin::FontPlugin(bool is_layout_test_mode, Gfx::SystemFontProvider* font_provider)

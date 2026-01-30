@@ -44,7 +44,7 @@ public:
         GC::Weak<DOM::Document> m_document;
     };
 
-    static ValueComparingNonnullRefPtr<ImageStyleValue const> create(URL const&);
+    static ValueComparingNonnullRefPtr<ImageStyleValue const> create(CSSURL const&);
     static ValueComparingNonnullRefPtr<ImageStyleValue const> create(::URL::URL const&);
     virtual ~ImageStyleValue() override;
     static u64 active_animation_timer_count(DOM::Document const&);
@@ -74,7 +74,7 @@ public:
 
 private:
     friend class Client;
-    ImageStyleValue(URL const&);
+    ImageStyleValue(CSSURL const&);
 
     void register_client(Client&) const;
     void unregister_client(Client&) const;
@@ -93,7 +93,7 @@ private:
     GC::Weak<HTML::SharedResourceRequest> m_resource_request;
     GC::Weak<CSSStyleSheet> m_style_sheet;
 
-    URL m_url;
+    CSSURL m_url;
     GC::Weak<DOM::Document> m_document;
 
     size_t m_current_frame_index { 0 };

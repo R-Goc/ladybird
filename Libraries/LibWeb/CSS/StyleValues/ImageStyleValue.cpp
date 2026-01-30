@@ -27,17 +27,17 @@ namespace Web::CSS {
 
 static HashTable<ImageStyleValue const*> s_active_animation_timers;
 
-ValueComparingNonnullRefPtr<ImageStyleValue const> ImageStyleValue::create(URL const& url)
+ValueComparingNonnullRefPtr<ImageStyleValue const> ImageStyleValue::create(CSSURL const& url)
 {
     return adopt_ref(*new (nothrow) ImageStyleValue(url));
 }
 
 ValueComparingNonnullRefPtr<ImageStyleValue const> ImageStyleValue::create(::URL::URL const& url)
 {
-    return adopt_ref(*new (nothrow) ImageStyleValue(URL { url.to_string() }));
+    return adopt_ref(*new (nothrow) ImageStyleValue(CSSURL { url.to_string() }));
 }
 
-ImageStyleValue::ImageStyleValue(URL const& url)
+ImageStyleValue::ImageStyleValue(CSSURL const& url)
     : AbstractImageStyleValue(Type::Image)
     , m_url(url)
 {

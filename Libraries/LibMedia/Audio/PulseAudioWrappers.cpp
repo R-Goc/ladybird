@@ -711,3 +711,5 @@ ErrorOr<pa_channel_map> channel_map_to_pulse_audio_channel_map(Audio::ChannelMap
 }
 
 }
+
+#undef ENUMERATE_CHANNEL_POSITIONS

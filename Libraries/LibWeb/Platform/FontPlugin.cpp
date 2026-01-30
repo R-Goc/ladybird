@@ -6,6 +6,10 @@
 
 #include <LibWeb/Platform/FontPlugin.h>
 
+#ifndef LIBWEB_UNITY_ID
+#    define LIBWEB_UNITY_ID LIBWEB_UNITY_ID_FALLBACK
+#endif
+
 namespace Web::Platform {
 
 namespace {

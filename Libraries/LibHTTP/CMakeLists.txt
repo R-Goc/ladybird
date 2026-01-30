@@ -20,3 +20,4 @@ list(APPEND SOURCES ${HSTS_PRELOAD_SOURCES})
 
 ladybird_lib(LibHTTP http)
 target_link_libraries(LibHTTP PRIVATE LibCompress LibCore LibCrypto LibDatabase LibFileSystem LibIPC LibRegex LibTextCodec LibTLS LibUnicode LibURL)
+set_target_properties(LibHTTP PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})

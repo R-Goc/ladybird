@@ -119,3 +119,5 @@ ErrorOr<AVChannelLayout> channel_map_to_av_channel_layout(Audio::ChannelMap cons
 }
 
 }
+
+#undef ENUMERATE_CHANNEL_POSITIONS

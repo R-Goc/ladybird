@@ -32,5 +32,8 @@ set(SOURCES
 
 ladybird_lib(LibCrypto crypto)
 
+set_target_properties(LibCrypto PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})
+set_source_files_properties(BigInt/SignedBigInteger.cpp BigInt/UnsignedBigInteger.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+
 target_link_libraries(LibCrypto PRIVATE PkgConfig::libtommath)
 target_link_libraries(LibCrypto PUBLIC OpenSSL::Crypto)

@@ -16,3 +16,5 @@ target_link_libraries(LibURL PRIVATE liburl_rust LibUnicode LibTextCodec LibRege
 import_rust_crate(MANIFEST_PATH Rust/Cargo.toml CRATE_NAME liburl_rust FEATURES allocator FFI_HEADER RustFFI.h)
 target_link_libraries(liburl_rust INTERFACE LibUnicode LibTextCodec LibRegex)
 target_compile_definitions(LibURL PRIVATE ENABLE_RUST)
+
+set_target_properties(LibURL PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})

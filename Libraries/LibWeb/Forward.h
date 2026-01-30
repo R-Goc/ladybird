@@ -410,7 +410,7 @@ class TreeCountingFunctionStyleValue;
 class TupleStyleValue;
 class UnicodeRangeStyleValue;
 class UnresolvedStyleValue;
-class URL;
+class CSSURL;
 class URLStyleValue;
 class VisualViewport;
 
@@ -493,7 +493,7 @@ using PaintOrderList = Array<PaintOrder, 3>;
 using StyleValueVector = Vector<ValueComparingNonnullRefPtr<StyleValue const>>;
 using StyleValueTuple = Vector<ValueComparingRefPtr<StyleValue const>>;
 
-using FilterValue = Variant<FilterOperation::Blur, FilterOperation::DropShadow, FilterOperation::HueRotate, FilterOperation::Color, URL>;
+using FilterValue = Variant<FilterOperation::Blur, FilterOperation::DropShadow, FilterOperation::HueRotate, FilterOperation::Color, CSSURL>;
 
 }
 

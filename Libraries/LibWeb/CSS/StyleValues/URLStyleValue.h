@@ -14,14 +14,14 @@ namespace Web::CSS {
 
 class URLStyleValue final : public StyleValueWithDefaultOperators<URLStyleValue> {
 public:
-    static ValueComparingNonnullRefPtr<URLStyleValue const> create(URL const& url, ValueComparingRefPtr<StyleValue const> paint_fallback = {})
+    static ValueComparingNonnullRefPtr<URLStyleValue const> create(CSSURL const& url, ValueComparingRefPtr<StyleValue const> paint_fallback = {})
     {
         return adopt_ref(*new (nothrow) URLStyleValue(url, move(paint_fallback)));
     }
 
     virtual ~URLStyleValue() override = default;
 
-    URL const& url() const { return m_url; }
+    CSSURL const& url() const { return m_url; }
 
     ValueComparingRefPtr<StyleValue const> const& paint_fallback() const { return m_paint_fallback; }
 
@@ -39,14 +39,14 @@ public:
     }
 
 private:
-    URLStyleValue(URL const& url, ValueComparingRefPtr<StyleValue const> paint_fallback = {})
+    URLStyleValue(CSSURL const& url, ValueComparingRefPtr<StyleValue const> paint_fallback = {})
         : StyleValueWithDefaultOperators(Type::URL)
         , m_url(url)
         , m_paint_fallback(move(paint_fallback))
     {
     }
 
-    URL m_url;
+    CSSURL m_url;
     ValueComparingRefPtr<StyleValue const> m_paint_fallback;
 };
 

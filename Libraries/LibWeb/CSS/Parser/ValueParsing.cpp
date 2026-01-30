@@ -2705,7 +2705,7 @@ RefPtr<ImageSetStyleValue const> Parser::parse_image_set_function(TokenStream<Co
 
         RefPtr<AbstractImageStyleValue const> image;
         if (option_tokens.next_token().is(Token::Type::String)) {
-            auto url = URL { option_tokens.consume_a_token().token().string().to_string() };
+            auto url = CSSURL { option_tokens.consume_a_token().token().string().to_string() };
             image = ImageStyleValue::create(url);
         } else {
             image = parse_image_value(option_tokens, AllowImageSet::No);
@@ -3307,7 +3307,7 @@ RefPtr<StyleValue const> Parser::parse_easing_value(TokenStream<ComponentValue>&
 }
 
 // https://drafts.csswg.org/css-values-4/#url-value
-Optional<URL> Parser::parse_url_function(TokenStream<ComponentValue>& tokens)
+Optional<CSSURL> Parser::parse_url_function(TokenStream<ComponentValue>& tokens)
 {
     // <url> = <url()> | <src()>
     // <url()> = url( <string> <url-modifier>* ) | <url-token>
@@ -3318,17 +3318,17 @@ Optional<URL> Parser::parse_url_function(TokenStream<ComponentValue>& tokens)
     // <url-token>
     if (component_value.is(Token::Type::Url)) {
         transaction.commit();
-        return URL { component_value.token().url().to_string() };
+        return CSSURL { component_value.token().url().to_string() };
     }
 
     // <url()> = url( <string> <url-modifier>* )
     // <src()> = src( <string> <url-modifier>* )
     if (component_value.is_function()) {
-        URL::Type function_type;
+        CSSURL::Type function_type;
         if (component_value.is_function("url"sv)) {
-            function_type = URL::Type::Url;
+            function_type = CSSURL::Type::Url;
         } else if (component_value.is_function("src"sv)) {
-            function_type = URL::Type::Src;
+            function_type = CSSURL::Type::Src;
         } else {
             return {};
         }
@@ -3417,7 +3417,7 @@ Optional<URL> Parser::parse_url_function(TokenStream<ComponentValue>& tokens)
         });
 
         transaction.commit();
-        return URL { url_string.token().string().to_string(), function_type, move(request_url_modifiers) };
+        return CSSURL { url_string.token().string().to_string(), function_type, move(request_url_modifiers) };
     }
 
     return {};

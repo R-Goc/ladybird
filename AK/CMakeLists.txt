@@ -47,6 +47,7 @@ else()
 endif()
 
 ladybird_lib(AK ak)
+set_target_properties(AK PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})
 
 configure_file(Debug.h.in Debug.h @ONLY)
 

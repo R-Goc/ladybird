@@ -8,5 +8,5 @@ set(SOURCES
 
 ladybird_lib(LibCompress compress)
 target_link_libraries(LibCompress PRIVATE LibCore LibCrypto)
-
 target_link_libraries(LibCompress PRIVATE ZLIB::ZLIB)
+set_target_properties(LibCompress PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})

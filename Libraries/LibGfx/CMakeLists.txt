@@ -66,6 +66,7 @@ set(SOURCES
 
 if (APPLE)
     list(APPEND SOURCES MetalContext.mm)
+    set_source_files_properties(MetalContext.mm PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 endif()
 
 if (HAS_VULKAN)
@@ -79,6 +80,8 @@ endif()
 ladybird_lib(LibGfx gfx)
 
 target_link_libraries(LibGfx PRIVATE LibCompress LibCore LibCrypto LibFileSystem LibTextCodec LibIPC LibUnicode)
+
+set_target_properties(LibGfx PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})
 
 set(generated_sources TIFFMetadata.h TIFFTagHandler.cpp)
 list(TRANSFORM generated_sources PREPEND "ImageFormats/")

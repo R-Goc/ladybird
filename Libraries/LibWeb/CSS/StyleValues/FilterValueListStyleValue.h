@@ -83,7 +83,7 @@ public:
             m_filter_value_list,
             [](auto const& filter_value) {
                 return filter_value.visit(
-                    [](URL const&) { return true; },
+                    [](CSSURL const&) { return true; },
                     [](auto const& value) { return value.is_computationally_independent(); });
             });
     }

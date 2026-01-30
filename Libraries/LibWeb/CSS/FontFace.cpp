@@ -44,11 +44,11 @@ namespace Web::CSS {
 // This matches the behavior of other engines (Blink, WebKit).
 static bool is_unsupported_source(ParsedFontFace::Source const& source)
 {
-    if (!source.local_or_url.has<URL>())
+    if (!source.local_or_url.has<CSSURL>())
         return false;
     if (source.format.has_value())
         return !font_format_is_supported(source.format.value());
-    return source.local_or_url.get<URL>().url().ends_with_bytes(".eot"sv);
+    return source.local_or_url.get<CSSURL>().url().ends_with_bytes(".eot"sv);
 }
 
 static FontWeightRange compute_weight_range(StyleValue const& value)

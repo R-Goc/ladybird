@@ -93,6 +93,8 @@ endif()
 ladybird_lib(LibCore core EXPLICIT_SYMBOL_EXPORT)
 target_link_libraries(LibCore PRIVATE LibUnicode LibURL Threads::Threads LibTextCodec)
 
+set_target_properties(LibCore PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "NetBSD")
     # NetBSD has its shm_open and shm_unlink functions in librt so we need to link that
     target_link_libraries(LibCore PRIVATE rt)

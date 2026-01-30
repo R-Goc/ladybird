@@ -271,6 +271,8 @@ ladybird_lib(LibJS js EXPLICIT_SYMBOL_EXPORT)
 
 target_link_libraries(LibJS PRIVATE LibCore LibCrypto LibFileSystem LibRegex LibSyntax LibGC simdjson::simdjson)
 
+set_target_properties(LibJS PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})
+
 # Link LibUnicode publicly to ensure ICU data (which is in libicudata.a) is available in any process using LibJS.
 target_link_libraries(LibJS PUBLIC LibUnicode)
 

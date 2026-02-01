@@ -189,9 +189,9 @@ namespace Web::HTML {
     }                     \
     }
 
-static inline void log_parse_error(SourceLocation const& location = SourceLocation::current())
+static inline void log_tokenizer_error(SourceLocation const& location = SourceLocation::current())
 {
-    dbgln_if(TOKENIZER_TRACE_DEBUG, "Parse error (tokenization) {}", location);
+    dbgln_if(TOKENIZER_TRACE_DEBUG, "Tokenization error! {}", location);
 }
 
 Optional<u32> HTMLTokenizer::next_code_point(StopAtInsertionPoint stop_at_insertion_point)
@@ -295,7 +295,7 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CURRENT_CHARACTER;
                 }
                 ON_EOF
@@ -327,20 +327,20 @@ _StartOfFunction:
                 }
                 ON('?')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     create_new_token(HTMLToken::Type::Comment);
                     m_current_token.set_start_position({}, nth_last_position(2));
                     RECONSUME_IN(BogusComment);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_queued_tokens.enqueue(HTMLToken::make_character('<'));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CHARACTER_AND_RECONSUME_IN('<', Data);
                 }
             }
@@ -374,14 +374,14 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     m_current_token.set_end_position({}, nth_last_position(0));
                     continue;
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -403,19 +403,19 @@ _StartOfFunction:
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     SWITCH_TO(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_queued_tokens.enqueue(HTMLToken::make_character('<'));
                     m_queued_tokens.enqueue(HTMLToken::make_character('/'));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     create_new_token(HTMLToken::Type::Comment);
                     RECONSUME_IN(BogusComment);
                 }
@@ -470,7 +470,7 @@ _StartOfFunction:
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     create_new_token(HTMLToken::Type::Comment);
                     SWITCH_TO(BogusComment);
                 }
@@ -492,7 +492,7 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
@@ -517,7 +517,7 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     create_new_token(HTMLToken::Type::DOCTYPE);
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
@@ -525,7 +525,7 @@ _StartOfFunction:
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     RECONSUME_IN(BeforeDOCTYPEName);
                 }
             }
@@ -547,7 +547,7 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     create_new_token(HTMLToken::Type::DOCTYPE);
                     m_current_builder.append_code_point(0xFFFD);
                     m_current_token.ensure_doctype_data().missing_name = false;
@@ -555,14 +555,14 @@ _StartOfFunction:
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     create_new_token(HTMLToken::Type::DOCTYPE);
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     create_new_token(HTMLToken::Type::DOCTYPE);
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
@@ -598,13 +598,13 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
@@ -630,7 +630,7 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
@@ -661,7 +661,7 @@ _StartOfFunction:
                             return {};
                         }
                     }
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     RECONSUME_IN(BogusDOCTYPE);
                 }
@@ -677,32 +677,32 @@ _StartOfFunction:
                 }
                 ON('"')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().missing_public_identifier = false;
                     SWITCH_TO(DOCTYPEPublicIdentifierDoubleQuoted);
                 }
                 ON('\'')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().missing_public_identifier = false;
                     SWITCH_TO(DOCTYPEPublicIdentifierSingleQuoted);
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     RECONSUME_IN(BogusDOCTYPE);
                 }
@@ -718,34 +718,34 @@ _StartOfFunction:
                 }
                 ON('"')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().system_identifier = {};
                     m_current_token.ensure_doctype_data().missing_system_identifier = false;
                     SWITCH_TO(DOCTYPESystemIdentifierDoubleQuoted);
                 }
                 ON('\'')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().system_identifier = {};
                     m_current_token.ensure_doctype_data().missing_system_identifier = false;
                     SWITCH_TO(DOCTYPESystemIdentifierSingleQuoted);
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     RECONSUME_IN(BogusDOCTYPE);
                 }
@@ -771,20 +771,20 @@ _StartOfFunction:
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     RECONSUME_IN(BogusDOCTYPE);
                 }
@@ -810,20 +810,20 @@ _StartOfFunction:
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     RECONSUME_IN(BogusDOCTYPE);
                 }
@@ -840,20 +840,20 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().public_identifier = consume_current_builder();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
@@ -876,20 +876,20 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().public_identifier = consume_current_builder();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
@@ -912,20 +912,20 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().system_identifier = consume_current_builder();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
@@ -948,20 +948,20 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().system_identifier = consume_current_builder();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
@@ -987,26 +987,26 @@ _StartOfFunction:
                 }
                 ON('"')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().missing_system_identifier = false;
                     SWITCH_TO(DOCTYPESystemIdentifierDoubleQuoted);
                 }
                 ON('\'')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().missing_system_identifier = false;
                     SWITCH_TO(DOCTYPESystemIdentifierSingleQuoted);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     RECONSUME_IN(BogusDOCTYPE);
                 }
@@ -1036,14 +1036,14 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     RECONSUME_IN(BogusDOCTYPE);
                 }
@@ -1063,14 +1063,14 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.ensure_doctype_data().force_quirks = true;
                     m_queued_tokens.enqueue(move(m_current_token));
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     RECONSUME_IN(BogusDOCTYPE);
                 }
             }
@@ -1085,7 +1085,7 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     continue;
                 }
                 ON_EOF
@@ -1121,7 +1121,7 @@ _StartOfFunction:
                 }
                 ON('=')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     HTMLToken::Attribute new_attribute;
                     new_attribute.name_start_position = nth_last_position(1);
                     m_current_builder.append_code_point(current_input_character.value());
@@ -1148,12 +1148,12 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     RECONSUME_IN(BeforeAttributeName);
                 }
             }
@@ -1199,23 +1199,23 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON('"')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     goto AnythingElseAttributeName;
                 }
                 ON('\'')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     goto AnythingElseAttributeName;
                 }
                 ON('<')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     goto AnythingElseAttributeName;
                 }
                 ANYTHING_ELSE
@@ -1249,7 +1249,7 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -1280,7 +1280,7 @@ _StartOfFunction:
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ANYTHING_ELSE
@@ -1305,13 +1305,13 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -1337,13 +1337,13 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -1376,38 +1376,38 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON('"')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     goto AnythingElseAttributeValueUnquoted;
                 }
                 ON('\'')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     goto AnythingElseAttributeValueUnquoted;
                 }
                 ON('<')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     goto AnythingElseAttributeValueUnquoted;
                 }
                 ON('=')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     goto AnythingElseAttributeValueUnquoted;
                 }
                 ON('`')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     goto AnythingElseAttributeValueUnquoted;
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -1437,12 +1437,12 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     RECONSUME_IN(BeforeAttributeName);
                 }
             }
@@ -1457,7 +1457,7 @@ _StartOfFunction:
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ANYTHING_ELSE
@@ -1476,12 +1476,12 @@ _StartOfFunction:
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CURRENT_TOKEN_FOLLOWED_BY_EOF;
                 }
                 ANYTHING_ELSE
@@ -1506,13 +1506,13 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_builder.append_code_point(0xFFFD);
                     continue;
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.set_comment(consume_current_builder());
                     EMIT_CURRENT_TOKEN_FOLLOWED_BY_EOF;
                 }
@@ -1543,7 +1543,7 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.set_comment(consume_current_builder());
                     EMIT_CURRENT_TOKEN_FOLLOWED_BY_EOF;
                 }
@@ -1565,13 +1565,13 @@ _StartOfFunction:
                 }
                 ON('>')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.set_comment(consume_current_builder());
                     SWITCH_TO_AND_EMIT_CURRENT_TOKEN(Data);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.set_comment(consume_current_builder());
                     EMIT_CURRENT_TOKEN_FOLLOWED_BY_EOF;
                 }
@@ -1592,7 +1592,7 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_current_token.set_comment(consume_current_builder());
                     EMIT_CURRENT_TOKEN_FOLLOWED_BY_EOF;
                 }
@@ -1665,7 +1665,7 @@ _StartOfFunction:
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     RECONSUME_IN(CommentEnd);
                 }
             }
@@ -1753,7 +1753,7 @@ _StartOfFunction:
                     }
 
                     if (!m_named_character_reference_matcher.last_match_ends_with_semicolon()) {
-                        log_parse_error();
+                        log_tokenizer_error();
                     }
 
                     m_temporary_buffer.clear_with_capacity();
@@ -1786,7 +1786,7 @@ _StartOfFunction:
                 }
                 ON(';')
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     RECONSUME_IN_RETURN_STATE;
                 }
                 ANYTHING_ELSE
@@ -1827,7 +1827,7 @@ _StartOfFunction:
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     FLUSH_CODEPOINTS_CONSUMED_AS_A_CHARACTER_REFERENCE;
                     RECONSUME_IN_RETURN_STATE;
                 }
@@ -1843,7 +1843,7 @@ _StartOfFunction:
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     FLUSH_CODEPOINTS_CONSUMED_AS_A_CHARACTER_REFERENCE;
                     RECONSUME_IN_RETURN_STATE;
                 }
@@ -1872,7 +1872,7 @@ _StartOfFunction:
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     RECONSUME_IN(NumericCharacterReferenceEnd);
                 }
             }
@@ -1893,7 +1893,7 @@ _StartOfFunction:
                 }
                 ANYTHING_ELSE
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     RECONSUME_IN(NumericCharacterReferenceEnd);
                 }
             }
@@ -1905,22 +1905,22 @@ _StartOfFunction:
                 DONT_CONSUME_NEXT_INPUT_CHARACTER;
 
                 if (m_character_reference_code == 0) {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_character_reference_code = 0xFFFD;
                 }
                 if (m_character_reference_code > 0x10ffff) {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_character_reference_code = 0xFFFD;
                 }
                 if (is_unicode_surrogate(m_character_reference_code)) {
-                    log_parse_error();
+                    log_tokenizer_error();
                     m_character_reference_code = 0xFFFD;
                 }
                 if (is_unicode_noncharacter(m_character_reference_code)) {
-                    log_parse_error();
+                    log_tokenizer_error();
                 }
                 if (m_character_reference_code == 0xd || (is_unicode_control(m_character_reference_code) && !is_ascii_space(m_character_reference_code))) {
-                    log_parse_error();
+                    log_tokenizer_error();
                     constexpr struct {
                         u32 number;
                         u32 code_point;
@@ -1982,7 +1982,7 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CHARACTER(0xFFFD);
                 }
                 ON_EOF
@@ -2101,7 +2101,7 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CHARACTER(0xFFFD);
                 }
                 ON_EOF
@@ -2220,7 +2220,7 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CHARACTER(0xFFFD);
                 }
                 ON_EOF
@@ -2239,7 +2239,7 @@ _StartOfFunction:
             {
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CHARACTER(0xFFFD);
                 }
                 ON_EOF
@@ -2319,12 +2319,12 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     SWITCH_TO_AND_EMIT_CHARACTER(0xFFFD, ScriptDataEscaped);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -2506,12 +2506,12 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CHARACTER(0xFFFD);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -2534,12 +2534,12 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     SWITCH_TO_AND_EMIT_CHARACTER(0xFFFD, ScriptDataDoubleEscaped);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -2566,12 +2566,12 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     SWITCH_TO_AND_EMIT_CHARACTER(0xFFFD, ScriptDataDoubleEscaped);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -2657,12 +2657,12 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     SWITCH_TO_AND_EMIT_CHARACTER(0xFFFD, ScriptDataEscaped);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -2685,12 +2685,12 @@ _StartOfFunction:
                 }
                 ON(0)
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_CHARACTER(0xFFFD);
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE
@@ -2793,7 +2793,7 @@ _StartOfFunction:
                 }
                 ON_EOF
                 {
-                    log_parse_error();
+                    log_tokenizer_error();
                     EMIT_EOF;
                 }
                 ANYTHING_ELSE

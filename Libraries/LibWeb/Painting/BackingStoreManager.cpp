@@ -11,7 +11,6 @@
 #include <LibGfx/SkiaBackendContext.h>
 #include <LibWeb/HTML/TraversableNavigable.h>
 #include <LibWeb/Painting/BackingStoreManager.h>
-#include <WebContent/PageClient.h>
 
 #ifdef USE_VULKAN_DMABUF_IMAGES
 #    include <LibGfx/VulkanImage.h>

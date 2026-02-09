@@ -167,6 +167,8 @@ protected:
 
     ShrinkToFitResult calculate_shrink_to_fit_widths(Box const&);
 
+    CSSPixels gap_to_px(Variant<CSS::LengthPercentage, CSS::NormalGap> const& gap, CSSPixels reference_value) const;
+
     void layout_absolutely_positioned_element(Box const&, AvailableSpace const&);
     void compute_width_for_absolutely_positioned_element(Box const&, AvailableSpace const&);
     void compute_width_for_absolutely_positioned_non_replaced_element(Box const&, AvailableSpace const&);

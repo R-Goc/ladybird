@@ -334,6 +334,7 @@ class MediaList;
 class MediaQuery;
 class MediaQueryList;
 class MediaQueryListEvent;
+struct NormalGap;
 class Number;
 class NumberOrCalculated;
 class NumberStyleValue;

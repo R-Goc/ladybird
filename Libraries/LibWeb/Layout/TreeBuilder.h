@@ -61,6 +61,16 @@ private:
     static void create_first_letter_wrapper_if_needed(DOM::Element&, Layout::BlockContainer&);
     void restructure_block_node_in_inline_parent(NodeWithStyleAndBoxModelMetrics&);
 
+    static bool is_table_track(CSS::Display);
+    static bool is_table_track_group(CSS::Display);
+    static bool is_proper_table_child(Node const&);
+    static bool is_not_proper_table_child(Node const&);
+    static bool is_not_table_row(Node const&);
+    static bool is_table_column(Node const&);
+    static bool is_table_cell(Node const&);
+    static bool is_not_table_cell(Node const&);
+    static bool is_table_row_group_column_group_or_caption(Node const&);
+
     GC::Ptr<Layout::Node> m_layout_root;
     Vector<GC::Ref<Layout::NodeWithStyle>> m_ancestor_stack;
 

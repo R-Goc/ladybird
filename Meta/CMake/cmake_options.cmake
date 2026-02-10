@@ -26,6 +26,7 @@ option(ENABLE_INSTALL_FREEDESKTOP_FILES "Enable installing .desktop and .service
 option(LADYBIRD_ENABLE_CPPTRACE "Enable use of cpptrace as the default library for stacktraces. If not available falls back to backtrace.h" ON)
 option(LADYBIRD_GENERATE_DSYM "Generate dSYM bundles for binaries and libraries (macOS only)" OFF)
 option(ENABLE_CI_BASELINE_CPU "Use a baseline CPU target for improved ccache sharing" OFF)
+option(LADYBIRD_ENABLE_UNITY_BUILD "Compile using a unity build" ON)
 
 # lto1 uses a crazy amount of RAM in static builds.
 # Disable LTO for static gcc builds unless explicitly asked for.

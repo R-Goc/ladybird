@@ -20,7 +20,6 @@
 extern "C" {
 #include <EGL/eglext_angle.h>
 }
-#define GL_GLEXT_PROTOTYPES 1
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 extern "C" {

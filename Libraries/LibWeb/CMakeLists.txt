@@ -1293,4 +1293,6 @@ if (HAS_FONTCONFIG)
     target_link_libraries(LibWeb PRIVATE Fontconfig::Fontconfig)
 endif()
 
+target_compile_definitions(LibWeb PRIVATE GL_GLEXT_PROTOTYPES=1)
+
 generate_js_bindings(LibWeb)

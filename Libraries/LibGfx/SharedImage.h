@@ -8,6 +8,7 @@
 
 #include <AK/Error.h>
 #include <AK/Noncopyable.h>
+#include <LibGfx/Export.h>
 #include <LibIPC/Forward.h>
 
 #ifdef AK_OS_MACOS
@@ -51,9 +52,9 @@ private:
 namespace IPC {
 
 template<>
-ErrorOr<void> encode(Encoder&, Gfx::SharedImage const&);
+GFX_API ErrorOr<void> encode(Encoder&, Gfx::SharedImage const&);
 
 template<>
-ErrorOr<Gfx::SharedImage> decode(Decoder&);
+GFX_API ErrorOr<Gfx::SharedImage> decode(Decoder&);
 
 }

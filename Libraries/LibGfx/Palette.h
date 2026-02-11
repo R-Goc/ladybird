@@ -12,6 +12,7 @@
 #include <AK/Noncopyable.h>
 #include <AK/RefCounted.h>
 #include <AK/RefPtr.h>
+#include <LibGfx/Export.h>
 #include <LibGfx/SystemTheme.h>
 
 namespace Gfx {
@@ -22,7 +23,7 @@ class PaletteImpl : public RefCounted<PaletteImpl> {
 
 public:
     ~PaletteImpl() = default;
-    static NonnullRefPtr<PaletteImpl> create_with_anonymous_buffer(Core::AnonymousBuffer);
+    GFX_API static NonnullRefPtr<PaletteImpl> create_with_anonymous_buffer(Core::AnonymousBuffer);
     NonnullRefPtr<PaletteImpl> clone() const;
 
     Color color(ColorRole role) const
@@ -55,7 +56,7 @@ private:
     Core::AnonymousBuffer m_theme_buffer;
 };
 
-class Palette {
+class GFX_API Palette {
 
 public:
     explicit Palette(NonnullRefPtr<PaletteImpl>);

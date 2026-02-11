@@ -9,6 +9,7 @@
 #include <AK/Noncopyable.h>
 #include <AK/NonnullRefPtr.h>
 #include <LibGfx/Bitmap.h>
+#include <LibGfx/Export.h>
 #include <LibGfx/SharedImage.h>
 
 #ifdef AK_OS_MACOS
@@ -17,7 +18,7 @@
 
 namespace Gfx {
 
-class SharedImageBuffer {
+class GFX_API SharedImageBuffer {
     AK_MAKE_NONCOPYABLE(SharedImageBuffer);
 
 public:

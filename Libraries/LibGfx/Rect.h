@@ -9,6 +9,7 @@
 #pragma once
 
 #include <AK/Format.h>
+#include <LibGfx/Export.h>
 #include <LibGfx/Orientation.h>
 #include <LibGfx/Point.h>
 #include <LibGfx/Size.h>
@@ -615,9 +616,9 @@ struct Formatter<Gfx::Rect<T>> : Formatter<FormatString> {
 namespace IPC {
 
 template<>
-ErrorOr<void> encode(Encoder&, Gfx::IntRect const&);
+GFX_API ErrorOr<void> encode(Encoder&, Gfx::IntRect const&);
 
 template<>
-ErrorOr<Gfx::IntRect> decode(Decoder&);
+GFX_API ErrorOr<Gfx::IntRect> decode(Decoder&);
 
 }

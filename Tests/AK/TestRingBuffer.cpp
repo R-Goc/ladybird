@@ -5,6 +5,7 @@
  */
 
 #include <AK/Atomic.h>
+#include <AK/CpuBackoff.h>
 #include <AK/Function.h>
 #include <AK/RingBuffer.h>
 #include <AK/Vector.h>
@@ -130,7 +131,7 @@ TEST_CASE(mpsc_threaded)
         auto thread = Threading::Thread::construct(ByteString::formatted("Producer_{}", i), [buffer = buffer.ptr(), id = i, &producer_done_count] {
             for (size_t k = 0; k < ITEMS_PER_PRODUCER; ++k) {
                 while (!buffer->try_push(static_cast<int>((id * ITEMS_PER_PRODUCER) + k))) {
-                    AK::atomic_pause();
+                    cpu_pause();
                 }
             }
             producer_done_count.fetch_add(1);
@@ -147,7 +148,7 @@ TEST_CASE(mpsc_threaded)
             if (buffer->try_pop(value)) {
                 consumed++;
             } else {
-                AK::atomic_pause();
+                cpu_pause();
             }
         }
         total_consumed.store(consumed);
@@ -220,7 +221,7 @@ BENCHMARK_CASE(mpsc_throughput_threaded)
         auto thread = Threading::Thread::construct(ByteString::formatted("Producer_{}", i), [buffer = buffer.ptr(), &producer_done_count] {
             for (size_t k = 0; k < ITEMS_PER_PRODUCER; ++k) {
                 while (!buffer->try_push(1)) {
-                    AK::atomic_pause();
+                    cpu_pause();
                 }
             }
             producer_done_count.fetch_add(1);
@@ -236,7 +237,7 @@ BENCHMARK_CASE(mpsc_throughput_threaded)
             if (buffer->try_pop(value)) {
                 consumed++;
             } else {
-                AK::atomic_pause();
+                cpu_pause();
             }
         }
         return 0;
@@ -405,7 +406,7 @@ TEST_CASE(spsc_threaded)
     auto producer = Threading::Thread::construct("Producer"sv, [buffer = buffer.ptr(), &producer_done] {
         for (size_t k = 0; k < ITEMS_COUNT; ++k) {
             while (!buffer->try_push(static_cast<int>(k))) {
-                AK::atomic_pause();
+                cpu_pause();
             }
         }
         producer_done.store(true);
@@ -420,7 +421,7 @@ TEST_CASE(spsc_threaded)
                 EXPECT_EQ(value, static_cast<int>(consumed));
                 consumed++;
             } else {
-                AK::atomic_pause();
+                cpu_pause();
             }
         }
         total_consumed.store(consumed);
@@ -487,7 +488,7 @@ BENCHMARK_CASE(spsc_throughput_threaded)
     auto producer = Threading::Thread::construct("Producer"sv, [buffer = buffer.ptr(), &producer_done] {
         for (size_t k = 0; k < ITEMS_COUNT; ++k) {
             while (!buffer->try_push(static_cast<int>(k))) {
-                AK::atomic_pause();
+                cpu_pause();
             }
         }
         producer_done.store(true);
@@ -501,7 +502,7 @@ BENCHMARK_CASE(spsc_throughput_threaded)
             if (buffer->try_pop(value)) {
                 consumed++;
             } else {
-                AK::atomic_pause();
+                cpu_pause();
             }
         }
         return 0;

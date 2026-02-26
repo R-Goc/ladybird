@@ -7,7 +7,7 @@
 #include <LibCore/AddressInfoVector.h>
 
 #if defined(AK_OS_WINDOWS)
-#    include <ws2tcpip.h>
+#    include <AK/Windows.h>
 #else
 #    include <netdb.h>
 #    include <sys/socket.h>

@@ -20,6 +20,7 @@
 #    include <ntstatus.h>
 #    include <winsock2.h>
 #    include <winternl.h>
+#    include <ws2tcpip.h>
 
 extern "C" {
 // NOTE: These are documented here: https://learn.microsoft.com/en-us/windows/win32/devnotes/-win32-misclowlevelclientsupport

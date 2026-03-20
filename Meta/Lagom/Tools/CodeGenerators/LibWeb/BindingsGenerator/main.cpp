@@ -8,7 +8,10 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include "IDLGenerators.h"
+#include "CodeGeneratorUtils.h"
+#include "ConstructorGenerator.h"
+#include "NamespaceGenerator.h"
+#include "PrototypeGenerator.h"
 #include "Namespaces.h"
 #include <AK/Debug.h>
 #include <AK/LexicalPath.h>

@@ -12,11 +12,13 @@
 #include <AK/Error.h>
 #include <AK/FixedArray.h>
 #include <AK/Format.h>
+#include <AK/Forward.h>
 #include <AK/Math.h>
 #include <AK/NonnullRefPtr.h>
 #include <AK/Platform.h>
 #include <AK/Queue.h>
 #include <AK/RefPtr.h>
+#include <AK/RingBuffer.h>
 #include <AK/ScopeGuard.h>
 #include <AK/Time.h>
 #include <AK/Types.h>
@@ -26,7 +28,6 @@
 #include <LibMedia/Audio/ChannelMap.h>
 #include <LibMedia/Audio/PlaybackStreamWasapi.h>
 #include <LibMedia/Audio/SampleSpecification.h>
-#include <LibThreading/Mutex.h>
 #include <LibThreading/Thread.h>
 
 #include <AK/Windows.h>
@@ -71,6 +72,8 @@ struct TaskDiscardAndSuspend {
     NonnullRefPtr<Core::ThreadedPromise<void>> promise;
 };
 
+using TaskVariant = Variant<TaskPlay, TaskDrainAndSuspend, TaskDiscardAndSuspend>;
+
 class ComUninitializer {
 public:
     ~ComUninitializer()
@@ -101,8 +104,9 @@ struct PlaybackStreamWASAPI::AudioState : public AtomicRefCounted<PlaybackStream
     PlaybackStreamWASAPI::AudioDataRequestCallback data_request_callback;
     Function<void()> underrun_callback;
 
-    Threading::Mutex task_queue_mutex;
-    Queue<Variant<TaskPlay, TaskDrainAndSuspend, TaskDiscardAndSuspend>> task_queue;
+    // NOTE: Tune size if needed
+    MPSCRingBuffer<TaskVariant, 128> task_buffer;
+
     // FIXME: Create a owning handle type to be shared in the codebase
     HANDLE task_event = 0;
 
@@ -355,9 +359,9 @@ int PlaybackStreamWASAPI::AudioState::render_thread_loop(PlaybackStreamWASAPI::A
         DWORD result = WaitForMultipleObjects(handles.size(), handles.data(), FALSE, INFINITE);
         switch (result) {
         case WAIT_OBJECT_0: {
-            state.task_queue_mutex.lock();
-            while (!state.task_queue.is_empty()) {
-                auto task = state.task_queue.dequeue();
+            Optional<TaskVariant> maybe_task = state.task_buffer.try_pop();
+            while (maybe_task.has_value()) {
+                auto task = maybe_task.release_value();
                 task.visit(
                     [&state](TaskPlay const& task) {
                         HRESULT hr = state.audio_client->Start();
@@ -395,8 +399,8 @@ int PlaybackStreamWASAPI::AudioState::render_thread_loop(PlaybackStreamWASAPI::A
                         state.playing = false;
                         task.promise->resolve();
                     });
+                maybe_task = state.task_buffer.try_pop();
             }
-            state.task_queue_mutex.unlock();
             DWORD res = WaitForSingleObject(handles[1], 0);
             // Both the task event and buffer event were signaled
             if (res == WAIT_OBJECT_0)
@@ -458,12 +462,9 @@ void PlaybackStreamWASAPI::set_underrun_callback(Function<void()> underrun_callb
 NonnullRefPtr<Core::ThreadedPromise<AK::Duration>> PlaybackStreamWASAPI::resume()
 {
     auto promise = Core::ThreadedPromise<AK::Duration>::create();
-    TaskPlay task = { .promise = promise };
 
-    m_state->task_queue_mutex.lock();
-    m_state->task_queue.enqueue(move(task));
+    m_state->task_buffer.push(TaskPlay { .promise = promise });
     SetEvent(m_state->task_event);
-    m_state->task_queue_mutex.unlock();
 
     return promise;
 }
@@ -471,12 +472,9 @@ NonnullRefPtr<Core::ThreadedPromise<AK::Duration>> PlaybackStreamWASAPI::resume(
 NonnullRefPtr<Core::ThreadedPromise<void>> PlaybackStreamWASAPI::drain_buffer_and_suspend()
 {
     auto promise = Core::ThreadedPromise<void>::create();
-    TaskDrainAndSuspend task = { .promise = promise };
 
-    m_state->task_queue_mutex.lock();
-    m_state->task_queue.enqueue(move(task));
+    m_state->task_buffer.push(TaskDrainAndSuspend { .promise = promise });
     SetEvent(m_state->task_event);
-    m_state->task_queue_mutex.unlock();
 
     return promise;
 }
@@ -484,12 +482,9 @@ NonnullRefPtr<Core::ThreadedPromise<void>> PlaybackStreamWASAPI::drain_buffer_an
 NonnullRefPtr<Core::ThreadedPromise<void>> PlaybackStreamWASAPI::discard_buffer_and_suspend()
 {
     auto promise = Core::ThreadedPromise<void>::create();
-    TaskDiscardAndSuspend task = { .promise = promise };
 
-    m_state->task_queue_mutex.lock();
-    m_state->task_queue.enqueue(move(task));
+    m_state->task_buffer.push(TaskDiscardAndSuspend { .promise = promise });
     SetEvent(m_state->task_event);
-    m_state->task_queue_mutex.unlock();
 
     return promise;
 }

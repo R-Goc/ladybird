@@ -7,6 +7,7 @@
  */
 
 #include <AK/Atomic.h>
+#include <AK/RingBuffer.h>
 #include <AK/ScopeGuard.h>
 #include <AK/SourceLocation.h>
 #include <AK/Vector.h>
@@ -208,11 +209,9 @@ public:
             AudioOutputUnitStop(m_audio_unit);
     }
 
-    void queue_task(AudioTask task)
+    void queue_task(AudioTask&& task)
     {
-        Threading::MutexLocker lock(m_task_queue_mutex);
-        m_task_queue.append(move(task));
-        m_task_queue_is_empty = false;
+        m_task_buffer.push(forward<AudioTask>(task));
     }
 
     SampleSpecification const& sample_specification() const { return m_sample_specification; }
@@ -229,19 +228,6 @@ private:
     {
     }
 
-    Optional<AudioTask> dequeue_task()
-    {
-        // OPTIMIZATION: We can avoid taking a lock in the audio decoder thread if there are no queued commands, which
-        //               will be the case most of the time.
-        if (m_task_queue_is_empty.load())
-            return {};
-
-        Threading::MutexLocker lock(m_task_queue_mutex);
-
-        m_task_queue_is_empty = m_task_queue.size() == 1;
-        return m_task_queue.take_first();
-    }
-
     static OSStatus on_audio_unit_buffer_request(void* user_data, AudioUnitRenderActionFlags*, AudioTimeStamp const* time_stamp, UInt32 element, UInt32 frames_to_render, AudioBufferList* output_buffer_list)
     {
         VERIFY(element == AUDIO_UNIT_OUTPUT_BUS);
@@ -256,7 +242,7 @@ private:
         auto last_sample_time = static_cast<i64>(sample_time_seconds * 1000.0);
         state.m_last_sample_time.store(last_sample_time);
 
-        if (auto task = state.dequeue_task(); task.has_value()) {
+        if (auto task = state.m_task_buffer.try_pop(); task.has_value()) {
             OSStatus error = noErr;
 
             switch (task->type) {
@@ -305,9 +291,7 @@ private:
     AudioComponentInstance m_audio_unit { nullptr };
     SampleSpecification m_sample_specification;
 
-    Threading::Mutex m_task_queue_mutex;
-    Vector<AudioTask, 4> m_task_queue;
-    Atomic<bool> m_task_queue_is_empty { true };
+    MPSCRingBuffer<AudioTask, 128> m_task_buffer;
 
     enum class Paused {
         Yes,

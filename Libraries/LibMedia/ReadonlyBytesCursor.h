@@ -19,15 +19,16 @@ public:
     {
     }
 
-    virtual DecoderErrorOr<void> seek(i64 offset, SeekMode mode) override
+    virtual DecoderErrorOr<void> seek(i64 offset, AK::SeekMode mode) override
     {
         auto target_position = [&] -> size_t {
+            using enum AK::SeekMode;
             switch (mode) {
-            case SeekMode::SetPosition:
+            case SetPosition:
                 return offset;
-            case SeekMode::FromCurrentPosition:
+            case FromCurrentPosition:
                 return m_position + offset;
-            case SeekMode::FromEndPosition:
+            case FromEndPosition:
                 return m_data.size() + offset;
             }
             VERIFY_NOT_REACHED();

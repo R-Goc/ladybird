@@ -86,7 +86,6 @@ jobs:
             -DCMAKE_C_COMPILER=clang-${{ steps.setup.outputs.llvm_version }} \
             -DCMAKE_CXX_COMPILER=clang++-${{ steps.setup.outputs.llvm_version }} \
             -DENABLE_CI_BASELINE_CPU=ON \
-            -DENABLE_GUI_TARGETS=OFF
         if: ${{ matrix.os_name == 'Linux' }}
 
       # FIXME: Add the following flag back when vcpkg supports Universal binaries:
@@ -97,7 +96,6 @@ jobs:
         run: |
           cmake --preset Distribution \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
-            -DENABLE_GUI_TARGETS=OFF
         if: ${{ matrix.os_name == 'macOS' }}
 
       - name: Build js

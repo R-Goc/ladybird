@@ -20,7 +20,6 @@ else()
     set(freedesktop_files_default OFF)
 endif()
 
-ladybird_option(ENABLE_GUI_TARGETS ON CACHE BOOL "Enable building GUI targets")
 ladybird_option(ENABLE_INSTALL_HEADERS ON CACHE BOOL "Enable installing headers")
 ladybird_option(ENABLE_INSTALL_FREEDESKTOP_FILES ${freedesktop_files_default} CACHE BOOL "Enable installing .desktop and .service files")
 ladybird_option(LADYBIRD_ENABLE_CPPTRACE ON CACHE BOOL "Enable use of cpptrace as the default library for stacktraces. If not available falls back to backtrace.h")

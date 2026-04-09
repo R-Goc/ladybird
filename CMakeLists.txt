@@ -177,10 +177,8 @@ if (NOT (ENABLE_FUZZERS OR ENABLE_COMPILER_EXPLORER_BUILD OR ANDROID OR IOS))
     endif()
 endif()
 
-if (ENABLE_GUI_TARGETS)
-    add_subdirectory(Services)
-    add_subdirectory(UI)
-endif()
+add_subdirectory(Services)
+add_subdirectory(UI)
 
 add_custom_target(lint-shell-scripts
     COMMAND "${ladybird_SOURCE_DIR}/Meta/lint-shell-scripts.sh"

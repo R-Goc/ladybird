@@ -20,6 +20,7 @@ namespace JS {
 
 class FunctionObject : public Object {
     JS_OBJECT(FunctionObject, Object);
+    friend void ::emit_offsets();
 
 public:
     virtual ~FunctionObject() = default;

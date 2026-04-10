@@ -27,6 +27,7 @@ void async_function_start(VM&, PromiseCapability const&, T const& async_function
 class JS_API ECMAScriptFunctionObject final : public FunctionObject {
     JS_OBJECT(ECMAScriptFunctionObject, FunctionObject);
     GC_DECLARE_ALLOCATOR(ECMAScriptFunctionObject);
+    friend void ::emit_offsets();
 
 public:
     [[nodiscard]] static GC::Ref<ECMAScriptFunctionObject> create_from_function_data(

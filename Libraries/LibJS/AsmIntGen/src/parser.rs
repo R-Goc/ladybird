@@ -51,6 +51,7 @@ pub struct Macro {
 pub enum ObjectFormat {
     MachO,
     Elf,
+    COFF,
 }
 
 pub struct Program {

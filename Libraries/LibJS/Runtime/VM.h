@@ -59,6 +59,8 @@ enum class CompilationType {
 };
 
 class JS_API VM : public RefCounted<VM> {
+    friend void ::emit_offsets();
+
 public:
     static NonnullRefPtr<VM> create();
     ~VM();

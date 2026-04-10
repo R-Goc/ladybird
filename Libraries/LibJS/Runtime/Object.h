@@ -79,6 +79,7 @@ enum class IndexedStorageKind : u8 {
 class JS_API Object : public Cell {
     GC_CELL(Object, Cell);
     GC_DECLARE_ALLOCATOR(Object);
+    friend void ::emit_offsets();
 
 public:
     static GC::Ref<Object> create_prototype(Realm&, Object* prototype);

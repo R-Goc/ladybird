@@ -19,6 +19,7 @@ namespace JS {
 class JS_API DeclarativeEnvironment : public Environment {
     JS_ENVIRONMENT(DeclarativeEnvironment, Environment);
     GC_DECLARE_ALLOCATOR(DeclarativeEnvironment);
+    friend void ::emit_offsets();
 
     struct Binding {
         Utf16FlyString name;

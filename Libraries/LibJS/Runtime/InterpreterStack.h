@@ -17,6 +17,7 @@ namespace JS {
 class InterpreterStack {
     AK_MAKE_NONCOPYABLE(InterpreterStack);
     AK_MAKE_NONMOVABLE(InterpreterStack);
+    friend void ::emit_offsets();
 
 public:
     static constexpr size_t stack_size = 8 * MiB;

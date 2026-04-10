@@ -25,6 +25,7 @@ using ScriptOrModule = Variant<Empty, GC::Ref<Script>, GC::Ref<Module>>;
 
 // 9.4 Execution Contexts, https://tc39.es/ecma262/#sec-execution-contexts
 struct JS_API ExecutionContext {
+    friend void ::emit_offsets();
     static NonnullOwnPtr<ExecutionContext> create(u32 registers_and_locals_count, ReadonlySpan<Value> constants, u32 arguments_count);
     [[nodiscard]] NonnullOwnPtr<ExecutionContext> copy() const;
 

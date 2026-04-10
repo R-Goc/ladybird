@@ -22,6 +22,7 @@ namespace JS {
 
 class JS_API TypedArrayBase : public Object {
     JS_OBJECT(TypedArrayBase, Object);
+    friend void ::emit_offsets();
 
 public:
     enum class ContentType {

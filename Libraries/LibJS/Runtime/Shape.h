@@ -45,6 +45,7 @@ struct TransitionKey {
 class PrototypeChainValidity final : public Cell {
     GC_CELL(PrototypeChainValidity, Cell);
     GC_DECLARE_ALLOCATOR(PrototypeChainValidity);
+    friend void ::emit_offsets();
 
 public:
     [[nodiscard]] bool is_valid() const { return m_valid; }
@@ -58,6 +59,7 @@ private:
 class JS_API Shape final : public Cell {
     GC_CELL(Shape, Cell);
     GC_DECLARE_ALLOCATOR(Shape);
+    friend void ::emit_offsets();
 
 public:
     static constexpr bool OVERRIDES_FINALIZE = true;

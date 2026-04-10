@@ -149,6 +149,8 @@
     __JS_ENUMERATE(UnicodeSets, unicodeSets, unicode_sets, v) \
     __JS_ENUMERATE(Sticky, sticky, sticky, y)
 
+void emit_offsets();
+
 namespace JS {
 
 enum class Strict : u8 {

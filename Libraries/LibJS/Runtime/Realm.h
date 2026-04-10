@@ -26,6 +26,7 @@ namespace JS {
 class JS_API Realm final : public Cell {
     GC_CELL(Realm, Cell);
     GC_DECLARE_ALLOCATOR(Realm);
+    friend void ::emit_offsets();
 
 public:
     struct HostDefined {

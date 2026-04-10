@@ -36,7 +36,7 @@
 #define EMIT_SIZEOF(name, type) \
     outln("const " #name " = {}", sizeof(type))
 
-int main()
+void emit_offsets()
 {
     using namespace JS;
     using namespace JS::Bytecode;
@@ -161,7 +161,7 @@ int main()
     EMIT_OFFSET(EXECUTION_CONTEXT_ARGUMENT_COUNT, ExecutionContext, argument_count);
     EMIT_SIZEOF(SIZEOF_EXECUTION_CONTEXT, ExecutionContext);
     outln("const ALIGNOF_EXECUTION_CONTEXT = {}", alignof(ExecutionContext));
-    outln("const EXECUTION_CONTEXT_NO_YIELD_CONTINUATION = {}", ExecutionContext::no_yield_continuation);
+    outln("const EXECUTION_CONTEXT_NO_YIELD_CONTINUATION = {}", ExecutionContext::no_yield_continuation + 0);
     outln("const SIZEOF_SCRIPT_OR_MODULE = {}", sizeof(ScriptOrModule));
 
     // InterpreterStack layout
@@ -291,10 +291,11 @@ int main()
     EMIT_OFFSET(SHARED_FUNCTION_INSTANCE_DATA_FUNCTION_ENVIRONMENT_NEEDED, SharedFunctionInstanceData, m_function_environment_needed);
     EMIT_OFFSET(SHARED_FUNCTION_INSTANCE_DATA_USES_THIS, SharedFunctionInstanceData, m_uses_this);
     EMIT_OFFSET(SHARED_FUNCTION_INSTANCE_DATA_CAN_INLINE_CALL, SharedFunctionInstanceData, m_can_inline_call);
-    outln("const SHARED_FUNCTION_INSTANCE_DATA_ASM_CALL_METADATA_CAN_INLINE_CALL = {}", SharedFunctionInstanceData::asm_call_metadata_can_inline_call);
-    outln("const SHARED_FUNCTION_INSTANCE_DATA_ASM_CALL_METADATA_FUNCTION_ENVIRONMENT_NEEDED = {}", SharedFunctionInstanceData::asm_call_metadata_function_environment_needed);
-    outln("const SHARED_FUNCTION_INSTANCE_DATA_ASM_CALL_METADATA_USES_THIS = {}", SharedFunctionInstanceData::asm_call_metadata_uses_this);
-    outln("const SHARED_FUNCTION_INSTANCE_DATA_ASM_CALL_METADATA_STRICT = {}", SharedFunctionInstanceData::asm_call_metadata_strict);
+    // FIXME: Ugly hack to make outln not take an lvalue reference
+    outln("const SHARED_FUNCTION_INSTANCE_DATA_ASM_CALL_METADATA_CAN_INLINE_CALL = {}", SharedFunctionInstanceData::asm_call_metadata_can_inline_call + 0);
+    outln("const SHARED_FUNCTION_INSTANCE_DATA_ASM_CALL_METADATA_FUNCTION_ENVIRONMENT_NEEDED = {}", SharedFunctionInstanceData::asm_call_metadata_function_environment_needed + 0);
+    outln("const SHARED_FUNCTION_INSTANCE_DATA_ASM_CALL_METADATA_USES_THIS = {}", SharedFunctionInstanceData::asm_call_metadata_uses_this + 0);
+    outln("const SHARED_FUNCTION_INSTANCE_DATA_ASM_CALL_METADATA_STRICT = {}", SharedFunctionInstanceData::asm_call_metadata_strict + 0);
 
     // GlobalEnvironment layout
     outln("\n# GlobalEnvironment layout");
@@ -409,6 +410,11 @@ int main()
     outln("const RETURN_VALUE_REG_OFFSET = {}", static_cast<size_t>(Register::return_value().index()) * sizeof(Value));
     outln("const SAVED_LEXICAL_ENVIRONMENT_REG_OFFSET = {}", static_cast<size_t>(Register::saved_lexical_environment().index()) * sizeof(Value));
     outln("const RESERVED_REGISTERS_SIZE = {}", static_cast<size_t>(Register::reserved_register_count) * sizeof(Value));
+}
+
+int main()
+{
+    emit_offsets();
 
     return 0;
 }

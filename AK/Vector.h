@@ -22,6 +22,8 @@
 #include <initializer_list>
 #include <string.h>
 
+void emit_offsets();
+
 namespace AK {
 
 namespace Detail {
@@ -65,6 +67,8 @@ private:
     template<typename U>
     static constexpr bool CanBePlacedInsideVector = Detail::CanBePlacedInsideVectorHelper<StorageType, contains_reference>::template value<U>;
     static constexpr auto want_fast_last_access = requested_fast_last_access == FastLastAccess::Yes;
+
+    friend void ::emit_offsets();
 
 public:
     using ValueType = T;

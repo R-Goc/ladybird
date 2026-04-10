@@ -15,11 +15,15 @@
 #include <AK/Utf16View.h>
 #include <AK/kmalloc.h>
 
+void emit_offsets();
+
 namespace AK::Detail {
 
 void did_destroy_utf16_fly_string_data(Badge<Detail::Utf16StringData>, Detail::Utf16StringData const&);
 
 class Utf16StringData final : public RefCounted<Utf16StringData> {
+    friend void ::emit_offsets();
+
 public:
     enum class StorageType : u8 {
         ASCII,

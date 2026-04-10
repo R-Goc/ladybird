@@ -14,6 +14,7 @@ namespace JS {
 class JS_API GlobalEnvironment final : public Environment {
     JS_ENVIRONMENT(GlobalEnvironment, Environment);
     GC_DECLARE_ALLOCATOR(GlobalEnvironment);
+    friend void ::emit_offsets();
 
 public:
     virtual bool has_this_binding() const final { return true; }

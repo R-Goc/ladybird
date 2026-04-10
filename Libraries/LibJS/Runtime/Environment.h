@@ -22,6 +22,7 @@ struct Variable {
 
 class JS_API Environment : public Cell {
     GC_CELL(Environment, Cell);
+    friend void ::emit_offsets();
 
 public:
     enum class InitializeBindingHint {

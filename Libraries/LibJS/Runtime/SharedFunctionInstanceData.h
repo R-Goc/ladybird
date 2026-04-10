@@ -46,6 +46,7 @@ class JS_API SharedFunctionInstanceData final : public GC::Cell {
     GC_CELL(SharedFunctionInstanceData, GC::Cell);
     GC_DECLARE_ALLOCATOR(SharedFunctionInstanceData);
     static constexpr bool OVERRIDES_FINALIZE = true;
+    friend void ::emit_offsets();
 
 public:
     static constexpr u64 asm_call_metadata_can_inline_call = 1ull << 32;

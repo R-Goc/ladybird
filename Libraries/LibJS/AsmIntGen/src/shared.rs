@@ -137,7 +137,8 @@ pub fn resolve_label(op: &Operand, handler: &Handler) -> String {
     match op {
         Operand::Label(name) => {
             if name.starts_with('.') {
-                format!(".Lasm_{}{name}", handler.name)
+                let handler_name = &handler.name;
+                format!(".Lasm_{handler_name}{name}")
             } else {
                 name.clone()
             }
@@ -223,10 +224,10 @@ pub fn resolve_memory_operand(
         return Err(format!("expected memory operand, got {op:?}"));
     };
 
-    let base = resolve_register(base, arch).unwrap_or_else(|| base.clone());
+    let base = resolve_register(base, arch, program.object_format).unwrap_or_else(|| base.clone());
     let index = match (index, scale) {
         (Some(index), Some(scale)) => {
-            let index = resolve_register(index, arch).unwrap_or_else(|| index.clone());
+            let index = resolve_register(index, arch, program.object_format).unwrap_or_else(|| index.clone());
             if let Some(offset) = resolve_memory_immediate(scale, handler, program) {
                 ResolvedMemoryIndex::RegImm(index, offset)
             } else {
@@ -243,7 +244,7 @@ pub fn resolve_memory_operand(
             if let Some(offset) = resolve_memory_immediate(index, handler, program) {
                 ResolvedMemoryIndex::Imm(offset)
             } else {
-                let index = resolve_register(index, arch).unwrap_or_else(|| index.clone());
+                let index = resolve_register(index, arch, program.object_format).unwrap_or_else(|| index.clone());
                 ResolvedMemoryIndex::Reg(index)
             }
         }

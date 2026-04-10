@@ -104,6 +104,7 @@ enum class ObjectPropertyIteratorFastPath : u8 {
 class JS_API ObjectPropertyIteratorCacheData final : public Cell {
     GC_CELL(ObjectPropertyIteratorCacheData, Cell);
     GC_DECLARE_ALLOCATOR(ObjectPropertyIteratorCacheData);
+    friend void ::emit_offsets();
 
 public:
     ObjectPropertyIteratorCacheData(VM&, Vector<PropertyKey>, ObjectPropertyIteratorFastPath, u32 indexed_property_count, bool receiver_has_magical_length_property, GC::Ref<Shape>, GC::Ptr<PrototypeChainValidity> = nullptr);

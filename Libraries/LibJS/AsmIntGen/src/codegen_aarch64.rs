@@ -54,6 +54,9 @@ fn emit_symbol_addr(out: &mut String, dst: &str, symbol: &str, fmt: ObjectFormat
             w!(out, "    adrp {dst}, {symbol}");
             w!(out, "    add {dst}, {dst}, :lo12:{symbol}");
         }
+        ObjectFormat::COFF => {
+            todo!();
+        }
     }
 }
 
@@ -372,16 +375,13 @@ fn handler_size(handler: &Handler, program: &Program) -> u32 {
     if let Some(size) = handler.size {
         return size;
     }
-    let layout = program.op_layouts.get(&handler.name).unwrap_or_else(|| {
-        panic!(
-            "No Bytecode.def layout for handler '{}' and no explicit size",
-            handler.name
-        )
+    let handler_name = &handler.name;
+    let layout = program.op_layouts.get(handler_name).unwrap_or_else(|| {
+        panic!("No Bytecode.def layout for handler '{handler_name}' and no explicit size")
     });
     layout.size.unwrap_or_else(|| {
         panic!(
-            "Handler '{}' is variable-length; use dispatch_variable instead of bare dispatch",
-            handler.name
+            "Handler '{handler_name}' is variable-length; use dispatch_variable instead of bare dispatch"
         )
     }) as u32
 }
@@ -392,8 +392,9 @@ fn generate_handler(
     program: &Program,
     pinned: &PinnedConstants,
 ) {
+    let handler_name = &handler.name;
     w!(out, ".p2align 4");
-    w!(out, "asm_handler_{}:", handler.name);
+    w!(out, "asm_handler_{handler_name}:");
     // x21 = pb + pc is set by the dispatch sequence that branches here.
     // It is callee-saved, so it survives C++ calls within the handler.
 
@@ -412,9 +413,10 @@ fn generate_handler(
 }
 
 fn resolve_op(op: &Operand, handler: &Handler, program: &Program) -> String {
+    let fmt = program.object_format;
     match op {
         Operand::Register(name) => {
-            resolve_register(name, Arch::Aarch64).unwrap_or_else(|| name.clone())
+            resolve_register(name, Arch::Aarch64, fmt).unwrap_or_else(|| name.clone())
         }
         Operand::Immediate(val) => format!("{val}"),
         Operand::Constant(name) => {
@@ -426,18 +428,18 @@ fn resolve_op(op: &Operand, handler: &Handler, program: &Program) -> String {
         }
         Operand::Memory { base, index, scale } => {
             // Return a structured string that we'll parse in load/store emitters
-            let base_r = resolve_register(base, Arch::Aarch64).unwrap_or_else(|| base.clone());
+            let base_r = resolve_register(base, Arch::Aarch64, fmt).unwrap_or_else(|| base.clone());
             match (index, scale) {
                 (Some(idx), Some(sc)) => {
                     // Check if 'sc' is a field reference (e.g. [pb, pc, m_cache]).
                     if let Some(field_offset) = resolve_field_ref(sc, handler, program) {
-                        let idx_r =
-                            resolve_register(idx, Arch::Aarch64).unwrap_or_else(|| idx.clone());
+                        let idx_r = resolve_register(idx, Arch::Aarch64, fmt)
+                            .unwrap_or_else(|| idx.clone());
                         // Encode as base + index + immediate offset.
                         format!("MEM:{base_r}:{idx_r}:+{field_offset}")
                     } else {
-                        let idx_r =
-                            resolve_register(idx, Arch::Aarch64).unwrap_or_else(|| idx.clone());
+                        let idx_r = resolve_register(idx, Arch::Aarch64, fmt)
+                            .unwrap_or_else(|| idx.clone());
                         let sc_val = program
                             .constants
                             .get(sc.as_str())
@@ -454,8 +456,8 @@ fn resolve_op(op: &Operand, handler: &Handler, program: &Program) -> String {
                     } else if let Ok(val) = idx.parse::<i64>() {
                         format!("MEM:{base_r}:#{val}")
                     } else {
-                        let idx_r =
-                            resolve_register(idx, Arch::Aarch64).unwrap_or_else(|| idx.clone());
+                        let idx_r = resolve_register(idx, Arch::Aarch64, fmt)
+                            .unwrap_or_else(|| idx.clone());
                         format!("MEM:{base_r}:{idx_r}")
                     }
                 }
@@ -464,15 +466,13 @@ fn resolve_op(op: &Operand, handler: &Handler, program: &Program) -> String {
         }
         Operand::Label(name) => name.clone(),
         Operand::FieldRef(name) => {
+            let handler_name = &handler.name;
             let layout = program
                 .op_layouts
-                .get(&handler.name)
-                .unwrap_or_else(|| panic!("No Bytecode.def layout for handler '{}'", handler.name));
+                .get(handler_name)
+                .unwrap_or_else(|| panic!("No Bytecode.def layout for handler '{handler_name}'"));
             let offset = layout.field_offsets.get(name).unwrap_or_else(|| {
-                panic!(
-                    "No field '{}' in Bytecode.def for opcode '{}'",
-                    name, handler.name
-                )
+                panic!("No field '{name}' in Bytecode.def for opcode '{handler_name}'")
             });
             format!("{offset}")
         }
@@ -1995,16 +1995,16 @@ fn emit_instruction(
                                 _ => {
                                     // General case: multiply and add
                                     emit_mov_imm(out, "x9", *scale);
-                                    writeln!(out, "    madd {dst}, {idx}, x9, {}", mem.base)
-                                        .unwrap();
+                                    let base = &mem.base;
+                                    w!(out, "    madd {dst}, {idx}, x9, {base}");
                                     return;
                                 }
                             };
+                            let base = &mem.base;
                             if shift == 0 {
-                                w!(out, "    add {dst}, {}, {idx}", mem.base);
+                                w!(out, "    add {dst}, {base}, {idx}");
                             } else {
-                                writeln!(out, "    add {dst}, {}, {idx}, lsl #{shift}", mem.base)
-                                    .unwrap();
+                                w!(out, "    add {dst}, {base}, {idx}, lsl #{shift}");
                             }
                         }
                         MemIndex::RegImm(idx, offset) => {
@@ -2293,7 +2293,8 @@ fn emit_instruction(
         }
 
         _ => {
-            panic!("Unknown instruction '{m}' in handler '{}'", handler.name);
+            let handler_name = &handler.name;
+            panic!("Unknown instruction '{m}' in handler '{handler_name}'");
         }
     }
 

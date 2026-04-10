@@ -178,6 +178,8 @@ elseif (MSVC)
     add_cxx_link_options(/STACK:0x800000)
     # enable control flow protection
     add_cxx_link_options(/GUARD:CF)
+    add_cxx_link_options(/CETCOMPAT)
+    add_cxx_link_options(/CETCOMPATSTRICT)
     add_cxx_link_option_if_supported(-prefetch-inputs)
 
     # Use ghash compressed debug info for build time and pdb size reduction

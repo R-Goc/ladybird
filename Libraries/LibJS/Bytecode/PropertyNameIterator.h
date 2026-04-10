@@ -8,6 +8,7 @@
 
 #include <LibJS/Bytecode/Executable.h>
 #include <LibJS/Export.h>
+#include <LibJS/Forward.h>
 #include <LibJS/Runtime/Iterator.h>
 #include <LibJS/Runtime/Object.h>
 
@@ -18,6 +19,7 @@ class JS_API PropertyNameIterator final
     , public BuiltinIterator {
     JS_OBJECT(PropertyNameIterator, Object);
     GC_DECLARE_ALLOCATOR(PropertyNameIterator);
+    friend void ::emit_offsets();
 
 public:
     using FastPath = ObjectPropertyIteratorFastPath;

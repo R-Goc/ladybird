@@ -30,4 +30,5 @@ set(SOURCES
 )
 
 ladybird_lib(LibDevTools devtools EXPLICIT_SYMBOL_EXPORT)
+set_target_properties(LibDevTools PROPERTIES UNITY_BUILD ${LADYBIRD_ENABLE_UNITY_BUILD})
 target_link_libraries(LibDevTools PRIVATE LibCore LibWeb)

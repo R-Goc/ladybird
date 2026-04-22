@@ -1380,7 +1380,7 @@ void vdbg(StringView fmtstr, TypeErasedFormatParams& params, bool newline)
         auto process_name = process_name_for_logging();
         if (!process_name.is_empty()) {
             auto time = MonotonicTime::now_coarse();
-            builder.appendff("{}.{:03} " BOLD_YELLOW_FORMAT "{}", time.truncated_seconds(), time.nanoseconds_within_second() / 1000000, process_name);
+            builder.appendff("{}.{:06} " BOLD_YELLOW_FORMAT "{}", time.truncated_seconds(), time.nanoseconds_within_second() / 1000, process_name);
             auto process_id = current_process_id();
             builder.appendff("({})", process_id);
             auto thread_id = current_thread_id();

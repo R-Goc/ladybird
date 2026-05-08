@@ -40,6 +40,7 @@ if (WIN32)
         SystemWindows.cpp
         TCPServerWindows.cpp
         UDPServerWindows.cpp
+        VirtualMemoryWindows.cpp
     )
 else()
     list(APPEND SOURCES

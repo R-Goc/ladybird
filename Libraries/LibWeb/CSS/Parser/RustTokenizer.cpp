@@ -15,9 +15,6 @@
 
 namespace Web::CSS::Parser {
 
-// U+FFFD REPLACEMENT CHARACTER (�)
-static constexpr u32 REPLACEMENT_CHARACTER = 0xFFFD;
-
 static String decode_and_filter_code_points(StringView input, StringView encoding, TokenizerInput tokenizer_input)
 {
     // https://www.w3.org/TR/css-syntax-3/#css-filter-code-points

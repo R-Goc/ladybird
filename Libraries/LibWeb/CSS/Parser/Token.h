@@ -14,6 +14,9 @@
 
 namespace Web::CSS::Parser {
 
+// U+FFFD REPLACEMENT CHARACTER (�)
+static constexpr u32 REPLACEMENT_CHARACTER = 0xFFFD;
+
 inline static double clamp_to_single_precision(double value)
 {
     if (value > static_cast<double>(NumericLimits<float>::max()))

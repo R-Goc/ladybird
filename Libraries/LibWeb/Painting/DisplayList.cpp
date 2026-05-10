@@ -14,7 +14,7 @@
 
 namespace Web::Painting {
 
-static Atomic<u64> s_next_id { 1 };
+static Atomic<u64> s_next_display_list_id { 1 };
 
 static void set_command_sequence_visual_context(Bytes command_bytes, VisualContextIndex context_index)
 {
@@ -31,7 +31,7 @@ static void set_command_sequence_visual_context(Bytes command_bytes, VisualConte
 
 DisplayList::DisplayList(u64 compatible_visual_context_tree_version)
     : m_compatible_visual_context_tree_version(compatible_visual_context_tree_version)
-    , m_id(s_next_id.fetch_add(1, AK::MemoryOrder::memory_order_relaxed))
+    , m_id(s_next_display_list_id.fetch_add(1, AK::MemoryOrder::memory_order_relaxed))
 {
 }
 

@@ -23,10 +23,10 @@
 
 namespace Gfx {
 
-static Atomic<u64> s_next_id { 1 };
+static Atomic<u64> s_next_font_id { 1 };
 
 Font::Font(NonnullRefPtr<Typeface const> typeface, float point_width, float point_height, FontVariationSettings const variations, ShapeFeatures const& features)
-    : m_id(s_next_id.fetch_add(1, AK::MemoryOrder::memory_order_relaxed))
+    : m_id(s_next_font_id.fetch_add(1, AK::MemoryOrder::memory_order_relaxed))
     , m_typeface(move(typeface))
     , m_point_width(point_width)
     , m_point_height(point_height)

@@ -1266,7 +1266,7 @@ void vout(LogLevel log_level, StringView fmtstr, TypeErasedFormatParams& params,
 #endif
 }
 
-static StringView process_name_for_logging()
+StringView process_name_for_logging()
 {
     // NOTE: We use AK::Format in the DynamicLoader and LibC, which cannot use thread-safe statics
     // Also go to extraordinary lengths here to avoid strlen() on the process name every call to dbgln

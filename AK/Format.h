@@ -745,6 +745,8 @@ inline void dbgln() { dbgln(""); }
 void set_debug_enabled(bool);
 void set_rich_debug_enabled(bool);
 
+StringView process_name_for_logging();
+
 template<typename T>
 class FormatIfSupported {
 public:

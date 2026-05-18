@@ -166,11 +166,18 @@ void ak_verification_failed(char const* message)
     if (auto assertion_handler = get_custom_assertion_handler()) {
         assertion_handler(message);
     }
-    if (ak_colorize_output())
-        ERRORLN("\033[31;1mVERIFICATION FAILED\033[0m: {}", message);
-    else
-        ERRORLN("VERIFICATION FAILED: {}", message);
-
+    auto process_name = AK::process_name_for_logging();
+    if (ak_colorize_output()) {
+        if (!process_name.is_empty())
+            ERRORLN("\033[31;1m{}: VERIFICATION FAILED\033[0m: {}", process_name, message);
+        else
+            ERRORLN("\033[31;1mVERIFICATION FAILED\033[0m: {}", message);
+    } else {
+        if (!process_name.is_empty())
+            ERRORLN("{}: VERIFICATION FAILED: {}", process_name, message);
+        else
+            ERRORLN("VERIFICATION FAILED: {}", message);
+    }
     ak_trap();
 }
 

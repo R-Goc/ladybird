@@ -52,6 +52,11 @@ private:
     NonnullOwnPtr<Gfx::YUVData> m_yuv_data;
 };
 
+inline AK::Duration conservative_frame_end(VideoFrame& frame)
+{
+    return frame.timestamp() + frame.duration().scaled_by(3, 2);
+}
+
 }
 
 namespace IPC {

@@ -369,11 +369,6 @@ void DecodedVideoProducer::ThreadData::dispatch_frame_end_time(CodedFrame const&
     });
 }
 
-static AK::Duration conservative_frame_end(VideoFrame& frame)
-{
-    return frame.timestamp() + frame.duration().scaled_by(3, 2);
-}
-
 void DecodedVideoProducer::ThreadData::queue_frame(NonnullRefPtr<VideoFrame> const& frame)
 {
     if (m_seek_id.load() != m_last_processed_seek_id)

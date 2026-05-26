@@ -71,11 +71,6 @@ void DisplayingVideoSink::disconnect_input(NonnullRefPtr<VideoProducer> const& i
     m_input = nullptr;
 }
 
-static AK::Duration conservative_frame_end(VideoFrame& frame)
-{
-    return frame.timestamp() + frame.duration().scaled_by(3, 2);
-}
-
 void DisplayingVideoSink::seek(AK::Duration timestamp)
 {
     m_seek_id++;

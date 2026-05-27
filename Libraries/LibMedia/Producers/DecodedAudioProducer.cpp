@@ -18,7 +18,7 @@
 
 namespace Media {
 
-static constexpr int AUTO_SUSPEND_IDLE_TIMEOUT_MS = 10000;
+static constexpr int AUDIO_AUTO_SUSPEND_IDLE_TIMEOUT_MS = 10000;
 
 DecoderErrorOr<NonnullRefPtr<DecodedAudioProducer>> DecodedAudioProducer::try_create(NonnullRefPtr<Core::WeakEventLoopReference> const& main_thread_event_loop, NonnullRefPtr<Demuxer> const& demuxer, Track const& track)
 {
@@ -171,7 +171,7 @@ void DecodedAudioProducer::ThreadData::wait_for_queue_space_or_auto_suspend_whil
     if (m_queue.size() < m_queue_max_size)
         return;
 
-    auto idle_at = m_last_consumer_activity + AK::Duration::from_milliseconds(AUTO_SUSPEND_IDLE_TIMEOUT_MS);
+    auto idle_at = m_last_consumer_activity + AK::Duration::from_milliseconds(AUDIO_AUTO_SUSPEND_IDLE_TIMEOUT_MS);
     auto now = MonotonicTime::now();
     if (now < idle_at) {
         if (m_wait_condition.wait_for(idle_at - now))
